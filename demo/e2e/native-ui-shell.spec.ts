@@ -18,6 +18,7 @@ interface ShellMock extends ShellMockCore {
   lateSearch?: () => void;
   tabRetirements: number;
   retirementDetails: { path: string; tabs: string }[];
+  preparedPopovers: number;
 }
 
 const mockNative = async (page: Page, fail = false, nativeEdge: 'leading' | 'trailing' | null | 'unreported' = 'trailing') => {
@@ -46,6 +47,13 @@ const mockNative = async (page: Page, fail = false, nativeEdge: 'leading' | 'tra
       notifyListeners(eventName: string, data: unknown) {
         for (const listener of this.listeners[eventName] ?? []) listener(data as never);
       },
+      preparedPopovers: 0,
+      async prepareOverlay() {
+        this.preparedPopovers++;
+        throw new Error('Native popover unavailable');
+      },
+      async closeOverlay() {},
+      async stopOverlays() {},
       async configure(options: { verticalBarsOnly?: boolean }) {
         this.configuredWith = options;
         return { supported: true, verticalBars: nativeEdge !== null };
@@ -3376,3 +3384,230 @@ test('tab visibility ignores query parameters and fragments', async ({ page }) =
   await page.goto('/main/index?verticalBarsOnly&buttonDefaultFill=solid#comparison');
   await expect(page.locator('ion-tab-bar')).not.toHaveClass(/tab-bar-hidden/);
 });
+
+for (const standalone of [false, true])
+  test(`Vertical Bars popover retains native controls and background geometry (${standalone ? 'standalone' : 'full shell'})`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 700, height: 900 });
+    await mockNative(page);
+    await page.goto(`/main/index/popover${standalone ? '?verticalBarsOnly' : ''}`);
+    await page.locator('ion-app').evaluate((app) => app.classList.add('ios-theme-vertical-bars'));
+    const trigger = page.locator('#native-popover-trigger');
+    await expect(trigger).toHaveAttribute('data-native-ui-shell-vertical-bars-member', '', { timeout: 15000 });
+    await page.evaluate(() =>
+      Object.assign(Capacitor.registerPlugin('IonicNativeUIShell'), {
+        async prepareOverlay() {},
+        async presentOverlay() {},
+        async dismissOverlay() {},
+      }),
+    );
+    await page
+      .locator('app-popover ion-content')
+      .first()
+      .evaluate(async (content: HTMLIonContentElement) => content.scrollToPoint(0, 100));
+    const geometry = () =>
+      page
+        .locator('app-popover ion-content')
+        .first()
+        .evaluate(async (content: HTMLIonContentElement) => {
+          const rect = content.getBoundingClientRect();
+          return { x: rect.x, y: rect.y, width: rect.width, height: rect.height, scroll: (await content.getScrollElement()).scrollTop };
+        });
+    const before = await geometry();
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const updateCount = await page.evaluate(() => Capacitor.registerPlugin<ShellMock>('IonicNativeUIShell').updates.length);
+      const opened = page.waitForEvent('popup');
+      await activate(page, 'Open popover');
+      const relay = await opened;
+      await expect(relay.getByText('Toolbar popover', { exact: true })).toBeVisible();
+      expect(await relay.evaluate(() => document.compatMode)).toBe('CSS1Compat');
+      expect((await relay.getByRole('button', { name: 'Increment', exact: true }).boundingBox())!.height).toBeLessThan(80);
+      await expect(trigger).toHaveAttribute('data-native-ui-shell-vertical-bars-member', '', { timeout: 15000 });
+      expect(await geometry()).toEqual(before);
+      expect(
+        await page.evaluate(
+          (start) =>
+            Capacitor.registerPlugin<ShellMock>('IonicNativeUIShell')
+              .updates.slice(start)
+              .every((snapshot) =>
+                snapshot.controls.some(
+                  (control) =>
+                    control.placement === 'vertical-bars' && control.items.some((item) => item.accessibilityLabel === 'Open popover'),
+                ),
+              ),
+          updateCount,
+        ),
+      ).toBe(true);
+      await relay.getByRole('button', { name: 'Increment', exact: true }).click();
+      await expect(relay.getByText(`Count: ${attempt}`, { exact: true })).toBeVisible();
+      await relay.getByRole('button', { name: 'Close popover', exact: true }).click();
+      await expect.poll(() => relay.isClosed()).toBe(true);
+      await expect(trigger).toHaveAttribute('data-native-ui-shell-vertical-bars-member', '', { timeout: 15000 });
+      expect(await geometry()).toEqual(before);
+    }
+  });
+
+test('ordinary popovers stay in the source WebView', async ({ page }) => {
+  await mockNative(page);
+  await page.goto('/main/index/popover');
+  await expect(page.locator('#native-popover-trigger')).toHaveAttribute('data-native-ui-shell', '');
+
+  await activate(page, 'Open popover');
+  await expect(page.getByText('Toolbar popover', { exact: true })).toBeVisible();
+  expect(page.context().pages()).toHaveLength(1);
+  expect(await page.evaluate(() => Capacitor.registerPlugin<ShellMock>('IonicNativeUIShell').preparedPopovers)).toBe(0);
+  await page.getByRole('button', { name: 'Close popover', exact: true }).click();
+});
+
+test('Vertical Bars popover preparation failure restores usable Web content and projection updates', async ({ page }) => {
+  await page.setViewportSize({ width: 700, height: 900 });
+  await mockNative(page);
+  await page.goto('/main/index/popover');
+  await page.locator('ion-app').evaluate((app) => app.classList.add('ios-theme-vertical-bars'));
+  const trigger = page.locator('#native-popover-trigger');
+  await expect(trigger).toHaveAttribute('data-native-ui-shell-vertical-bars-member', '', { timeout: 15000 });
+  await activate(page, 'Open popover');
+  await expect(page.getByText('Toolbar popover', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Increment', exact: true }).click();
+  await expect(page.getByText('Count: 1', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Close popover', exact: true }).click();
+  await expect(trigger).toHaveAttribute('data-native-ui-shell-vertical-bars-member', '', { timeout: 15000 });
+  expect(page.context().pages()).toHaveLength(1);
+});
+
+for (const disabled of [false, true])
+  test(`Vertical Bars popover handles anchor clicks during dismissal (${disabled ? 'disabled before replay' : 'reopens once'})`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 700, height: 900 });
+    await mockNative(page);
+    await page.goto('/main/index/popover');
+    await page.locator('ion-app').evaluate((app) => app.classList.add('ios-theme-vertical-bars'));
+    const trigger = page.locator('#native-popover-trigger');
+    await expect(trigger).toHaveAttribute('data-native-ui-shell-vertical-bars-member', '', { timeout: 15000 });
+    await page.evaluate(() => {
+      const plugin = Capacitor.registerPlugin<ShellMock & { finishDismiss?: () => void }>('IonicNativeUIShell');
+      Object.assign(plugin, {
+        async prepareOverlay() {},
+        async presentOverlay() {},
+        dismissOverlay: () =>
+          new Promise<void>((resolve) => {
+            plugin.finishDismiss = resolve;
+          }),
+      });
+    });
+    const opened = page.waitForEvent('popup');
+    await activate(page, 'Open popover');
+    const relay = await opened;
+    await expect(relay.getByText('Toolbar popover', { exact: true })).toBeVisible();
+    await relay.getByRole('button', { name: 'Close popover', exact: true }).click();
+    await expect
+      .poll(() =>
+        page.evaluate(() => !!Capacitor.registerPlugin<ShellMock & { finishDismiss?: () => void }>('IonicNativeUIShell').finishDismiss),
+      )
+      .toBe(true);
+    // UIKit can accept the next tap while Ionic still waits for didDismiss.
+    // Repeated clicks must coalesce, and a now-disabled source must not replay.
+    for (let i = 0; i < 3; i++) await activate(page, 'Open popover');
+    if (disabled)
+      await trigger.evaluate((button: HTMLIonButtonElement) => {
+        button.disabled = true;
+      });
+    await page.evaluate(() => Capacitor.registerPlugin<ShellMock & { finishDismiss?: () => void }>('IonicNativeUIShell').finishDismiss!());
+    await expect.poll(() => relay.isClosed()).toBe(true);
+    if (disabled) {
+      await expect(trigger).toHaveJSProperty('disabled', true);
+      await expect.poll(() => page.context().pages().length).toBe(1);
+    } else {
+      await expect.poll(() => page.context().pages().length).toBe(2);
+      const reopened = page
+        .context()
+        .pages()
+        .find((candidate) => candidate !== page)!;
+      await expect(reopened.getByText('Toolbar popover', { exact: true })).toBeVisible();
+      await reopened.getByRole('button', { name: 'Increment', exact: true }).click();
+      await expect(reopened.getByText('Count: 1', { exact: true })).toBeVisible();
+    }
+  });
+
+for (const failure of ['reject', 'timeout'] as const)
+  test(`Vertical Bars popover preserves didDismiss after native dismissal ${failure}`, async ({ page }) => {
+    await page.setViewportSize({ width: 700, height: 900 });
+    await mockNative(page);
+    await page.goto('/main/index/popover');
+    await page.locator('ion-app').evaluate((app) => app.classList.add('ios-theme-vertical-bars'));
+    const trigger = page.locator('#native-popover-trigger');
+    await expect(trigger).toHaveAttribute('data-native-ui-shell-vertical-bars-member', '', { timeout: 15000 });
+    await page.evaluate((failure) => {
+      Object.assign(Capacitor.registerPlugin('IonicNativeUIShell'), {
+        async prepareOverlay() {},
+        async presentOverlay() {},
+        dismissOverlay: () => (failure === 'reject' ? Promise.reject(new Error('Native dismiss failed')) : new Promise(() => {})),
+      });
+    }, failure);
+    const opened = page.waitForEvent('popup');
+    await activate(page, 'Open popover');
+    const relay = await opened;
+    await expect(relay.getByText('Toolbar popover', { exact: true })).toBeVisible();
+    const result = await page.locator('ion-popover[trigger="native-popover-trigger"]').evaluate(async (overlay: HTMLIonPopoverElement) => {
+      const didDismiss = overlay.onDidDismiss();
+      await overlay.dismiss({ saved: true }, 'confirm');
+      return Promise.race([didDismiss, new Promise((resolve) => setTimeout(() => resolve('missing didDismiss'), 1000))]);
+    });
+    expect(result).toEqual({ data: { saved: true }, role: 'confirm' });
+    await expect.poll(() => relay.isClosed()).toBe(true);
+    await expect(trigger).toHaveAttribute('data-native-ui-shell-vertical-bars-member', '');
+    const reopened = page.waitForEvent('popup');
+    await activate(page, 'Open popover');
+    await expect((await reopened).getByText('Toolbar popover', { exact: true })).toBeVisible();
+  });
+
+for (const nestedInRelay of [false, true])
+  test(`Vertical Bars popover restores nested overlays (${nestedInRelay ? 'inline content' : 'source controller'})`, async ({ page }) => {
+    await page.setViewportSize({ width: 700, height: 900 });
+    await mockNative(page);
+    await page.goto('/main/index/popover');
+    await page.locator('ion-app').evaluate((app) => app.classList.add('ios-theme-vertical-bars'));
+    await expect(page.locator('#native-popover-trigger')).toHaveAttribute('data-native-ui-shell-vertical-bars-member', '');
+    await page.evaluate(() =>
+      Object.assign(Capacitor.registerPlugin('IonicNativeUIShell'), {
+        async prepareOverlay() {},
+        async presentOverlay() {},
+        async dismissOverlay() {},
+      }),
+    );
+    await page.evaluate(() => {
+      const open = window.open.bind(window);
+      window.open = (...args) => {
+        const relay = open(...args);
+        (window as Window & { reviewRelay?: Window | null }).reviewRelay = relay;
+        return relay;
+      };
+    });
+    const opened = page.waitForEvent('popup');
+    await activate(page, 'Open popover');
+    const relay = await opened;
+    await expect(relay.getByText('Toolbar popover', { exact: true })).toBeVisible();
+    await page.evaluate(async (nestedInRelay) => {
+      const nested = document.createElement('ion-popover');
+      nested.id = 'nested-review-popover';
+      const body = document.createElement('div');
+      body.textContent = 'Nested content';
+      nested.component = body;
+      if (nestedInRelay) {
+        // The Angular content remains live in the child document.
+        const windows = window as Window & { reviewRelay?: Window };
+        windows.reviewRelay!.document.querySelector('ion-popover > div')!.append(nested);
+      } else document.querySelector('ion-app')!.append(nested);
+      await nested.present();
+    }, nestedInRelay);
+    await expect.poll(() => relay.isClosed()).toBe(true);
+    await expect(page.getByText('Nested content', { exact: true })).toBeVisible();
+    await page
+      .locator('#nested-review-popover')
+      .evaluate(async (overlay: HTMLIonPopoverElement) => overlay.dismiss(undefined, undefined, false));
+    await expect(page.getByText('Toolbar popover', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Close popover', exact: true }).click();
+    await expect(page.locator('#native-popover-trigger')).toHaveAttribute('data-native-ui-shell-vertical-bars-member', '');
+  });

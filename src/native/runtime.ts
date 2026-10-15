@@ -1,3 +1,4 @@
+import { projectionIds } from './shared/projection-id';
 import { inVerticalBarsSurface, topModal, modalUsesVerticalBars, modalVerticalBarFrame } from './shared/modal';
 import type { PluginListenerHandle } from '@capacitor/core';
 import { LIFECYCLE_WILL_ENTER, LIFECYCLE_WILL_LEAVE, LIFECYCLE_DID_ENTER, LIFECYCLE_DID_LEAVE } from '@ionic/core/components/index.js';
@@ -35,7 +36,7 @@ const verticalBarsMarker = 'data-native-ui-shell-vertical-bars';
 const verticalBarsMemberMarker = 'data-native-ui-shell-vertical-bars-member';
 
 // A failed bridge must not leave the source inaccessible indefinitely.
-const bounded = <T>(promise: Promise<T>): Promise<T> =>
+export const bounded = <T>(promise: Promise<T>): Promise<T> =>
   new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('Native UI Shell bridge timed out')), 5000);
     promise.then(resolve, reject).finally(() => clearTimeout(timer));
@@ -47,7 +48,7 @@ export const createRuntime = async (
   options: NativeUIShellOptions = {},
   nativeVerticalBars: () => boolean = () => true,
   verticalBarsOnly = false,
-): Promise<NativeUIShellHandle> => {
+): Promise<NativeUIShellHandle & { retain: (deferActivation?: (id: string) => boolean) => () => void }> => {
   const win = doc.defaultView!;
   const icons = createIconRenderer();
   const crossfade = createCrossfade(win);
@@ -77,6 +78,7 @@ export const createRuntime = async (
   let dirty = false;
   let pending = false;
   let stopped = false;
+  const retentions = new Set<{ accepts?: (id: string) => boolean; activation?: ShellActivation }>();
   /** True while a tab-switch handoff should skip crossfade. */
   let tabSwitchHandoff = false;
   /** Keep instant updates until this time — DidLeave often precedes the retire sync. */
@@ -108,6 +110,7 @@ export const createRuntime = async (
     if (!value) {
       value = `shell-${++nextId}`;
       ids.set(element, value);
+      projectionIds.set(element, value);
     }
     return value;
   };
@@ -303,8 +306,11 @@ export const createRuntime = async (
     pending = true;
     syncToolbarText(doc);
     handoffInstant = tabSwitchHandoff || handoffAcrossPending || modalPresentHandoff || win.performance.now() < handoffUntil;
-    modalPresentHandoff = false;
     try {
+      // A retained sync performs no update; keep the modal handoff armed so the
+      // deferred retirement still runs instantly after the overlay releases.
+      if (retentions.size && !manualSuspensions.size) return;
+      modalPresentHandoff = false;
       const size = `${win.innerWidth}:${win.innerHeight}`;
       // WebKit can resize before Ionic's fixed DOM positions catch up.
       // Measure on the next frame instead of retiring a valid native search.
@@ -326,7 +332,7 @@ export const createRuntime = async (
           );
         }
       }
-      if (stopped || dirty) return;
+      if (stopped || dirty || (retentions.size && !manualSuspensions.size)) return;
       const retained = new Set(candidates.flatMap(candidateSources));
       const removed = Array.from(sources.keys()).filter((element) => !retained.has(element));
       if (removed.length) {
@@ -361,7 +367,7 @@ export const createRuntime = async (
       updates++;
       updatingRevision = snapshot.revision;
       const result = await bounded(plugin.update(snapshot));
-      if (stopped) return;
+      if (stopped || (retentions.size && !manualSuspensions.size)) return;
       if (result.revision !== snapshot.revision) throw new Error('Native UI Shell revision mismatch');
       if (`${win.innerWidth}:${win.innerHeight}` !== size) {
         lastSnapshot = '';
@@ -637,7 +643,20 @@ export const createRuntime = async (
     on(win.visualViewport, 'resize', refreshLayout);
     on(win.visualViewport, 'scroll');
   }
-  const handle: NativeUIShellHandle = {
+  const handle: NativeUIShellHandle & { retain: (deferActivation?: (id: string) => boolean) => () => void } = {
+    // A native overlay covers this surface; keep its controls and Web ownership intact.
+    retain(deferActivation) {
+      const retention: { accepts?: (id: string) => boolean; activation?: ShellActivation } = { accepts: deferActivation };
+      retentions.add(retention);
+      return () => {
+        if (!retentions.delete(retention)) return;
+        // UIKit may already expose the anchor while Ionic is still dismissing.
+        // Replay at most one validated input after the live content is restored.
+        const activation = retention.activation;
+        if (activation && retention.accepts?.(activation.id)) win.queueMicrotask(() => activate(activation));
+        schedule();
+      };
+    },
     getStatus: (): NativeUIShellStatus => ({
       state: stopped ? 'stopped' : sources.size ? 'native' : 'web',
       projected: sources.size,
@@ -695,15 +714,16 @@ export const createRuntime = async (
     },
   };
   const activate = (event: ShellActivation) => {
-    if (
-      stopped ||
-      doc.hidden ||
-      event.revision < acceptedRevision ||
-      event.revision > revision ||
-      event.sequence <= lastSequence ||
-      overlayOpen(false, true)
-    )
+    if (stopped || doc.hidden || event.revision < acceptedRevision || event.revision > revision || event.sequence <= lastSequence) return;
+    if (overlayOpen(false, true)) {
+      if (!manualSuspensions.size) {
+        for (const retention of retentions) {
+          if (retention.accepts?.(event.id) && (!retention.activation || event.sequence > retention.activation.sequence))
+            retention.activation = event;
+        }
+      }
       return;
+    }
     // Native may send input before update() resolves on the JS bridge.
     // Revalidate it after ownership is accepted, using the same action path.
     if (event.revision > acceptedRevision && event.revision === updatingRevision) {
