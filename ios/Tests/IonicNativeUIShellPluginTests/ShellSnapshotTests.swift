@@ -52,6 +52,95 @@ final class ShellSnapshotTests: XCTestCase {
         }
     }
 
+    @MainActor func testVisiblePopoverDismissalNotifiesAllOverlappingCallersOnce() {
+        let host = ShellOverlayHost(configuration: WKWebViewConfiguration(), options: nil, event: { _ in })
+        host.anchoredVisible = true
+        var dismissals = 0
+        var completed: [Int] = []
+        host.dismissAnchored = { dismissals += 1 }
+        for caller in 0..<3 {
+            host.dismissPopover(animated: false) { completed.append(caller) }
+        }
+        XCTAssertEqual(dismissals, 1)
+        XCTAssertTrue(completed.isEmpty)
+        // SwiftUI delivers this callback only after the visible popover disappears.
+        host.anchoredVisible = false
+        host.completeDismissal()
+        XCTAssertEqual(completed, [0, 1, 2])
+        host.completeDismissal()
+        XCTAssertEqual(completed, [0, 1, 2])
+        host.dismissPopover(animated: false) { completed.append(3) }
+        XCTAssertEqual(completed, [0, 1, 2, 3])
+    }
+
+    @MainActor func testMissingPopoverDisappearanceCancelsPresentationAndSettlesAllWaiters() {
+        let host = ShellOverlayHost(configuration: WKWebViewConfiguration(), options: nil, event: { _ in })
+        host.anchoredVisible = true
+        host.dismissAnchored = {} // No onDisappear callback arrives.
+        var cancelled = false
+        host.cancelAnchored = { cancelled = true }
+        let closed = expectation(description: "Both stop requests finish after cancellation")
+        closed.expectedFulfillmentCount = 2
+        for _ in 0..<2 {
+            host.dismissPopover(animated: false) {
+                XCTAssertTrue(cancelled)
+                closed.fulfill()
+            }
+        }
+        waitForExpectations(timeout: ShellOverlayHost.completionTimeout + 2)
+        XCTAssertFalse(host.anchoredVisible)
+    }
+
+    @MainActor func testDetachingRailSettlesPopoverPresentationAndDismissal() throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("Requires native Vertical Bars") }
+        let owner = UIViewController()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 700, height: 900))
+        window.rootViewController = owner
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        let rail = ShellVerticalBarsController(activate: { _ in }, changed: { _, _, _, _, _ in 0 })
+        rail.attach(to: owner, in: owner.view)
+        rail.apply(try decode([control(["placement": "vertical-bars"])]).controls,
+                   rendering: ShellRendering(), edge: "right")
+        let host = ShellOverlayHost(configuration: WKWebViewConfiguration(), options: nil, event: { _ in })
+        var presentations: [Bool] = []
+        XCTAssertTrue(rail.presentPopover(anchor: "action", host: host) { presentations.append($0) })
+        host.anchoredVisible = true
+        var dismissals = 0
+        host.dismissPopover(animated: false) { dismissals += 1 }
+        rail.detach()
+        XCTAssertEqual(presentations, [false])
+        XCTAssertEqual(dismissals, 1)
+        XCTAssertFalse(host.anchoredVisible)
+        rail.detach()
+        XCTAssertEqual(dismissals, 1)
+    }
+
+    @MainActor func testStoppingPreparedPopoverRestoresWebViewAndAllowsNewSession() {
+        let source = WKWebView(frame: .zero)
+        let owner = UIViewController()
+        final class Delegate: NSObject, WKUIDelegate {}
+        let original = Delegate()
+        source.uiDelegate = original
+        for initiallyAllowed in [false, true] {
+            source.configuration.preferences.javaScriptCanOpenWindowsAutomatically = initiallyAllowed
+            let previous = ShellOverlayController(source: source, owner: owner, event: { _, _ in })
+            XCTAssertTrue(previous.prepare("old-context"))
+            XCTAssertTrue(source.configuration.preferences.javaScriptCanOpenWindowsAutomatically)
+            var stopped = false
+            previous.stop { stopped = true }
+            XCTAssertTrue(stopped)
+            XCTAssertTrue(source.uiDelegate === original)
+            XCTAssertEqual(source.configuration.preferences.javaScriptCanOpenWindowsAutomatically, initiallyAllowed)
+
+            let replacement = ShellOverlayController(source: source, owner: owner, event: { _, _ in })
+            XCTAssertTrue(replacement.prepare("new-context"))
+            replacement.stop {}
+            XCTAssertTrue(source.uiDelegate === original)
+            XCTAssertEqual(source.configuration.preferences.javaScriptCanOpenWindowsAutomatically, initiallyAllowed)
+        }
+    }
+
     private func item(_ changes: JSObject = [:]) -> JSObject {
         var value: JSObject = ["id": "action", "x": 4.0, "y": 8.0, "width": 44.0, "height": 44.0,
             "label": "Send", "accessibilityLabel": "Send message", "disabled": false, "selected": false,

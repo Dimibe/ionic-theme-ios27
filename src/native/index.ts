@@ -11,6 +11,7 @@ import type {
   WebViewMetrics,
 } from './definitions';
 import { createRuntime } from './runtime';
+import { bounded, boundedListener } from './shared/bridge';
 import { createOverlayController } from './overlays/controller';
 import { createVerticalBarsWebProjection } from './vertical-bars-web';
 import { prehideVerticalBarsToolbarSources } from './prehide';
@@ -33,6 +34,20 @@ const plugin = registerPlugin<NativeUIShellPlugin>('IonicNativeUIShell');
 export const IonicNativeUIShell = plugin;
 let active: Promise<NativeUIShellHandle> | undefined;
 let activeConfiguration: string | undefined;
+let stopping: Promise<void> | undefined;
+
+// Every stop entry point releases the activation immediately but reserves the
+// shared native/DOM resources until its teardown has settled.
+const stopActivation = (owner: Promise<NativeUIShellHandle>, destruction: Promise<void>) => {
+  if (active !== owner) return;
+  active = undefined;
+  activeConfiguration = undefined;
+  stopping = destruction;
+  const release = () => {
+    if (stopping === destruction) stopping = undefined;
+  };
+  void destruction.then(release, release);
+};
 const web = (reason: string): NativeUIShellHandle => ({
   getStatus: () => ({ state: 'web', projected: 0, updates: 0, reason }),
   suspend: async () => ({ resume: async () => {} }),
@@ -66,12 +81,12 @@ const manage = (
   lifecycle: {
     reason?: string;
     suspend?: () => (() => void) | undefined | Promise<(() => void) | undefined>;
-    /** Runs after teardown; clears the shared slot only while this activation owns it. */
-    release?: () => void;
+    /** Registers teardown before it starts so direct destroy and disable share the same queue. */
+    stopping?: (destruction: Promise<void>) => void;
     destroy?: () => void | Promise<void>;
   } = {},
 ): NativeUIShellHandle => {
-  let destroyed = false;
+  let destruction: Promise<void> | undefined;
   return {
     getStatus: () => (lifecycle.reason ? { ...handle.getStatus(), reason: lifecycle.reason } : handle.getStatus()),
     async suspend() {
@@ -84,25 +99,26 @@ const manage = (
         },
       };
     },
-    async destroy() {
-      if (destroyed) return;
-      destroyed = true;
-      try {
-        await handle.destroy();
-      } finally {
-        try {
-          await lifecycle.destroy?.();
-        } finally {
-          lifecycle.release?.();
-        }
+    destroy() {
+      if (!destruction) {
+        destruction = Promise.resolve().then(async () => {
+          try {
+            await handle.destroy();
+          } finally {
+            await lifecycle.destroy?.();
+          }
+        });
+        lifecycle.stopping?.(destruction);
       }
+      return destruction;
     },
   };
 };
 
 /** Reads the current native WebView geometry and applies it to page transitions. */
 export const configureNativeTransition = async (): Promise<WebViewMetrics> => {
-  const metrics = typeof document !== 'undefined' && Capacitor.getPlatform() === 'ios' ? await plugin.getWebViewMetrics() : { radius: 0 };
+  const metrics =
+    typeof document !== 'undefined' && Capacitor.getPlatform() === 'ios' ? await bounded(plugin.getWebViewMetrics()) : { radius: 0 };
   setConfig({ radius: metrics.radius });
   return metrics;
 };
@@ -190,14 +206,12 @@ export const enableVerticalControlArea = async (options: VerticalControlAreaOpti
 export const enableNativeUIShell = (options: NativeUIShellOptions = {}): Promise<NativeUIShellHandle> => {
   if (options.enabled === false) {
     const current = active;
-    active = undefined;
-    activeConfiguration = undefined;
-    return current
-      ? current.then(async (handle) => {
-          await handle.destroy();
-          return web('Disabled');
-        })
-      : Promise.resolve(web('Disabled'));
+    if (current)
+      stopActivation(
+        current,
+        current.then((handle) => handle.destroy()),
+      );
+    return (stopping ?? Promise.resolve()).then(() => web('Disabled'));
   }
   if (typeof document === 'undefined') return Promise.resolve(web('Requires a document'));
   const controls = options.controls;
@@ -215,36 +229,34 @@ export const enableNativeUIShell = (options: NativeUIShellOptions = {}): Promise
     );
   if (active) return active;
   activeConfiguration = configuration;
-  const stopModals = observeVerticalBarsModals(document);
-  const prehide =
-    options.controls === undefined || options.controls.toolbar === true ? prehideVerticalBarsToolbarSources(document) : undefined;
-  // A slow destroy of a superseded activation must not release a newer one.
+  const previousStop = stopping;
   let start: Promise<NativeUIShellHandle>;
-  const release = () => {
-    if (active === start) {
-      active = undefined;
-      activeConfiguration = undefined;
-    }
-  };
-  const fallback = (reason: string) =>
-    manage(createVerticalBarsWebProjection(document, options), {
-      reason,
-      suspend: () => prehide?.suspend(),
-      destroy: () => {
-        prehide?.stop();
-        stopModals();
-      },
-      release,
-    });
+  const stop = (destruction: Promise<void>) => stopActivation(start, destruction);
   return (start = active =
     (async () => {
+      // Native controls and DOM ownership are shared. A replacement activation
+      // must wait until the old handle has finished clearing both surfaces.
+      if (previousStop) await previousStop.catch(() => {});
+      const stopModals = observeVerticalBarsModals(document);
+      const prehide =
+        options.controls === undefined || options.controls.toolbar === true ? prehideVerticalBarsToolbarSources(document) : undefined;
+      const fallback = (reason: string) =>
+        manage(createVerticalBarsWebProjection(document, options), {
+          reason,
+          suspend: () => prehide?.suspend(),
+          destroy: () => {
+            prehide?.stop();
+            stopModals();
+          },
+          stopping: stop,
+        });
       if (Capacitor.getPlatform() !== 'ios') return fallback('Requires Capacitor iOS');
       let runtime: NativeUIShellHandle | undefined;
       let overlays: Awaited<ReturnType<typeof createOverlayController>> | undefined;
       let metricsListener: Awaited<ReturnType<typeof plugin.addListener>> | undefined;
       let stopVerticalBarsLayout: (() => void) | undefined;
       try {
-        const capabilities = await plugin.configure({ verticalBarsOnly: options.verticalBarsOnly === true });
+        const capabilities = await bounded(plugin.configure({ verticalBarsOnly: options.verticalBarsOnly === true }));
         if (!capabilities.supported) return fallback('Requires iOS 26 or later');
         if (!options.verticalBarsOnly) stopVerticalBarsLayout = observeNativeVerticalBarsLayout(document);
         // The application owns device state and selects the rail through placement classes.
@@ -257,9 +269,11 @@ export const enableNativeUIShell = (options: NativeUIShellOptions = {}): Promise
           return physicalEdge === physicalVerticalBarEdge(reported.edge, reported.rtl ?? elementRtl(app));
         };
         if (!options.verticalBarsOnly) {
-          metricsListener = await plugin.addListener('webViewMetricsChange', (metrics) => {
-            setConfig({ radius: metrics.radius });
-          });
+          metricsListener = await boundedListener(
+            plugin.addListener('webViewMetricsChange', (metrics) => {
+              setConfig({ radius: metrics.radius });
+            }),
+          );
           await configureNativeTransition().catch(() => undefined);
         }
         const native = await createRuntime(document, plugin, options, nativeVerticalBars, options.verticalBarsOnly === true);
@@ -278,19 +292,22 @@ export const enableNativeUIShell = (options: NativeUIShellOptions = {}): Promise
               resumeOverlays?.();
             };
           },
-          release,
+          stopping: stop,
           destroy: async () => {
-            await overlays?.destroy();
-            await metricsListener?.remove().catch(() => {});
-            stopVerticalBarsLayout?.();
-            prehide?.stop();
-            stopModals();
+            try {
+              await overlays?.destroy();
+            } finally {
+              if (metricsListener) await bounded(metricsListener.remove()).catch(() => {});
+              stopVerticalBarsLayout?.();
+              prehide?.stop();
+              stopModals();
+            }
           },
         });
       } catch (error) {
-        await overlays?.destroy();
-        await runtime?.destroy();
-        await metricsListener?.remove().catch(() => {});
+        await overlays?.destroy().catch(() => {});
+        await runtime?.destroy().catch(() => {});
+        if (metricsListener) await bounded(metricsListener.remove()).catch(() => {});
         stopVerticalBarsLayout?.();
         return fallback(error instanceof Error ? error.message : String(error));
       }

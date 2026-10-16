@@ -63,22 +63,30 @@ final class ShellOverlayController: NSObject, WKUIDelegate {
         guard self.id == id, let host, let owner,
               owner.presentedViewController == nil else { completion(false); return }
         host.apply(options)
+        var settled = false
+        var timeout: DispatchWorkItem?
+        let complete: (Bool) -> Void = { presented in
+            guard !settled else { return }
+            settled = true
+            timeout?.cancel()
+            timeout = nil
+            completion(presented)
+        }
+        timeout = DispatchWorkItem { [weak host] in
+            host?.cancelAnchored?()
+            complete(false)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + ShellOverlayHost.completionTimeout, execute: timeout!)
         if host.options?["kind"] as? String == "popover",
            let anchor = host.options?["anchorId"] as? String,
-           anchored(anchor, host, completion) { return }
-        completion(false)
+           anchored(anchor, host, complete) { return }
+        complete(false)
     }
 
     // Keep the WebView alive until JavaScript has restored the adopted nodes and listeners.
     func dismiss(_ id: String, animated: Bool, completion: @escaping () -> Void) {
         guard self.id == id, let host else { completion(); return }
-        if let dismiss = host.dismissAnchored {
-            if host.anchoredVisible { host.anchoredDidDismiss = completion; dismiss() }
-            else { dismiss(); completion() }
-            return
-        }
-        guard host.presentingViewController != nil else { completion(); return }
-        host.dismiss(animated: animated, completion: completion)
+        host.dismissPopover(animated: animated, completion: completion)
     }
 
     func close(_ id: String, completion: @escaping () -> Void) {
@@ -93,12 +101,7 @@ final class ShellOverlayController: NSObject, WKUIDelegate {
             self.id = nil
             completion()
         }
-        if let dismiss = host.dismissAnchored {
-            if host.anchoredVisible { host.anchoredDidDismiss = finish; dismiss() }
-            else { dismiss(); finish() }
-        }
-        else if host.presentingViewController == nil { finish() }
-        else { host.dismiss(animated: false, completion: finish) }
+        host.dismissPopover(animated: false, completion: finish)
     }
 
     func stop(completion: @escaping () -> Void) {

@@ -1,3 +1,4 @@
+import { bounded, boundedListener } from './shared/bridge';
 import { popoverTrigger } from './overlays/popover';
 import {
   alignVerticalTabBar,
@@ -44,13 +45,6 @@ const overlayNames = ['Modal', 'Popover', 'Alert', 'ActionSheet', 'Loading', 'Pi
 const verticalBarsMarker = 'data-native-ui-shell-vertical-bars';
 const verticalBarsMemberMarker = 'data-native-ui-shell-vertical-bars-member';
 
-// A failed bridge must not leave the source inaccessible indefinitely.
-export const bounded = <T>(promise: Promise<T>): Promise<T> =>
-  new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('Native UI Shell bridge timed out')), 5000);
-    promise.then(resolve, reject).finally(() => clearTimeout(timer));
-  });
-
 export const createRuntime = async (
   doc: Document,
   plugin: NativeUIShellPlugin,
@@ -89,6 +83,7 @@ export const createRuntime = async (
   let dirty = false;
   let pending = false;
   let stopped = false;
+  let destruction: Promise<void> | undefined;
   const retentions = new Set<{ accepts?: (id: string) => boolean; activation?: ShellActivation }>();
   /** True while a tab-switch handoff should skip crossfade. */
   let tabSwitchHandoff = false;
@@ -756,39 +751,42 @@ export const createRuntime = async (
         },
       };
     },
-    async destroy() {
-      tabGeometry.forEach((restore) => restore());
-      tabGeometry.clear();
-      if (stopped) return;
+    destroy() {
+      if (destruction) return destruction;
       stopped = true;
-      setNativeUIShellIntegration(doc);
-      win.cancelAnimationFrame(frame);
-      listeners.abort();
-      observer.disconnect();
-      resize.disconnect();
-      observed.clear();
-      actions.clear();
-      pendingActivations = [];
-      search.destroy();
-      crossfade.destroy();
-      restoreAll();
-      if (!doc.hidden) await painted();
-      try {
-        await bounded(plugin.clear({ revision: ++revision }));
-      } catch {
-        /* Always restore the Web, even after bridge loss. */
-      }
-      style.remove();
-      doc.querySelectorAll<HTMLElement>(`.${rejectedClass}`).forEach((element) => setRejected(element, false));
-      icons.clear();
-      pages.clear();
-      presented.clear();
-      manualSuspensions.clear();
-      moving.clear();
-      suspended.clear();
-      await listener?.remove().catch(() => {});
-      await searchListener?.remove().catch(() => {});
-      finishWaiters();
+      destruction = Promise.resolve().then(async () => {
+        tabGeometry.forEach((restore) => restore());
+        tabGeometry.clear();
+        setNativeUIShellIntegration(doc);
+        win.cancelAnimationFrame(frame);
+        listeners.abort();
+        observer.disconnect();
+        resize.disconnect();
+        observed.clear();
+        actions.clear();
+        pendingActivations = [];
+        search.destroy();
+        crossfade.destroy();
+        restoreAll();
+        if (!doc.hidden) await painted();
+        try {
+          await bounded(plugin.clear({ revision: ++revision }));
+        } catch {
+          /* Always restore the Web, even after bridge loss. */
+        }
+        style.remove();
+        doc.querySelectorAll<HTMLElement>(`.${rejectedClass}`).forEach((element) => setRejected(element, false));
+        icons.clear();
+        pages.clear();
+        presented.clear();
+        manualSuspensions.clear();
+        moving.clear();
+        suspended.clear();
+        if (listener) await bounded(listener.remove()).catch(() => {});
+        if (searchListener) await bounded(searchListener.remove()).catch(() => {});
+        finishWaiters();
+      });
+      return destruction;
     },
   };
   const activate = (event: ShellActivation) => {
@@ -826,8 +824,8 @@ export const createRuntime = async (
     schedule();
   };
   try {
-    listener = await bounded(plugin.addListener('activate', activate));
-    searchListener = await bounded(
+    listener = await boundedListener(plugin.addListener('activate', activate));
+    searchListener = await boundedListener(
       plugin.addListener('search', (event) => {
         if (
           stopped ||

@@ -25,6 +25,7 @@ public class IonicNativeUIShellPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDele
     private var searchControllers: [String: ShellSearchControlling] = [:]
     private var fingerprints: [String: ShellControl] = [:]
     private let rendering = ShellRendering()
+    private var configurationGeneration = 0
     private var revision = 0
     private var sequence = 0
     private var keyboardVisible = false
@@ -103,7 +104,17 @@ public class IonicNativeUIShellPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDele
                 call.reject("Popover not prepared"); return
             }
             overlays.present(id, options: call.getObject("presentation"), anchored: { [weak self] anchor, host, completion in
-                self?.verticalBars?.presentPopover(anchor: anchor, host: host, completion: completion) ?? false
+                guard let self, let rail = self.verticalBars,
+                      rail.presentPopover(anchor: anchor, host: host, completion: completion) else { return false }
+                let cancel = host.cancelAnchored
+                host.cancelAnchored = { [weak self, weak rail] in
+                    cancel?()
+                    // Cancellation removed the rail; invalidate native ownership even
+                    // if the next DOM snapshot is identical to the previous one.
+                    if let self, let rail, self.verticalBars === rail { self.verticalBars = nil }
+                    self?.bridge?.triggerWindowJSEvent(eventName: "nativeUIShellRefresh")
+                }
+                return true
             }) { presented in
                 if presented { call.resolve() } else { call.reject("Native Vertical Bars anchor unavailable") }
             }
@@ -127,7 +138,10 @@ public class IonicNativeUIShellPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDele
     @objc func stopOverlays(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self, let overlays = self.overlays else { call.resolve(); return }
-            overlays.stop { self.overlays = nil; call.resolve() }
+            overlays.stop {
+                if self.overlays === overlays { self.overlays = nil }
+                call.resolve()
+            }
         }
     }
 
@@ -153,23 +167,39 @@ public class IonicNativeUIShellPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDele
 
     @objc func configure(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
-            // A new JS context starts revision numbering again (live reload / navigation).
-            self?.restoreTopEdge?()
-            self?.restoreTopEdge = nil
-            self?.removeControls()
-            self?.revision = 0
-            if #available(iOS 26.0, *) {
-                self?.bridge?.webView?.layoutIfNeeded()
-                // Ionic already paints the header edge; a second native effect can
-                // add a dark scrim when the OS and Web themes differ.
-                if call.getBool("verticalBarsOnly") != true, let effect = self?.bridge?.webView?.scrollView.topEdgeEffect {
-                    let hidden = effect.isHidden
-                    effect.isHidden = true
-                    self?.restoreTopEdge = { [weak effect] in effect?.isHidden = hidden }
+            guard let self else { call.resolve(["supported": false]); return }
+            self.configurationGeneration += 1
+            let generation = self.configurationGeneration
+            let configure = { [self] in
+                guard generation == self.configurationGeneration else {
+                    call.reject("Configuration superseded"); return
                 }
-                call.resolve(["supported": true])
+                // A new JS context starts revision numbering again (live reload / navigation).
+                self.restoreTopEdge?()
+                self.restoreTopEdge = nil
+                self.removeControls()
+                self.revision = 0
+                if #available(iOS 26.0, *) {
+                    self.bridge?.webView?.layoutIfNeeded()
+                    // Ionic already paints the header edge; a second native effect can
+                    // add a dark scrim when the OS and Web themes differ.
+                    if call.getBool("verticalBarsOnly") != true, let effect = self.bridge?.webView?.scrollView.topEdgeEffect {
+                        let hidden = effect.isHidden
+                        effect.isHidden = true
+                        self.restoreTopEdge = { [weak effect] in effect?.isHidden = hidden }
+                    }
+                    call.resolve(["supported": true])
+                }
+                else { call.resolve(["supported": false]) }
             }
-            else { call.resolve(["supported": false]) }
+            // A replacement JS context cannot close its predecessor's child window.
+            // Finish dismissing it while its rail still owns the SwiftUI presentation.
+            if let overlays = self.overlays {
+                overlays.stop {
+                    if self.overlays === overlays { self.overlays = nil }
+                    configure()
+                }
+            } else { configure() }
         }
     }
 
