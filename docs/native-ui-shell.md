@@ -124,9 +124,23 @@ Custom host animation or transition declarations on the FAB, list or button keep
 
 The built-in `iosTransitionAnimation` waits for native retirement before starting the Web animation. Interactive progress and completion/cancellation are queued while that retirement is in progress. Stationary shared tabs are retained. First render and transitions without an animation builder are covered by the startup runtime and Ionic lifecycle events. Default Ionic and custom navigation builders can use the same integration through `withNativeUIShellTransition()`, exported from both the package root and `/vertical-bars`. See [Connect your navigation animation](./iphone-duo-with-original-theme.md#3.-connect-your-navigation-animation) for the setup.
 
+Ordinary native/Web handoffs share a 180ms opacity crossfade, including Vertical Bars in both directions. Outgoing visuals cannot receive input or accessibility focus. Reduce Motion and modal presentation use immediate handoffs; search controllers keep their UIKit-managed transition.
+
 Tab switches skip the Web/native crossfade so a retiring UIKit snapshot cannot linger over the next tab. Detection uses the router URL versus the still-selected tab on `ionViewWillLeave` (and vanilla `ionTabsWillChange` / `ionTabsDidChange` DOM events). Stack pushes and pops keep the normal 180ms handoff.
 
-Standard Ionic overlays suspend native projection until dismissal, except for the opt-in native Vertical Bars popovers described below. Unsupported searchable-tab configurations use the existing Web animation and share this ownership with Web glass gestures. CSS motion of supported containing surfaces also causes temporary Web rendering.
+Standard Ionic overlays suspend ordinary native projection until dismissal. Vertical Bars use a separate policy:
+
+| Surface or condition | Vertical Bars behavior |
+| --- | --- |
+| Web toast, ordinary popover or legacy picker overlay | Keep the native rail visible, updated and interactive. |
+| Popover opened from a Vertical Bars button, rendered on Web | Return the rail to Web projection until dismissal, including native rejection or preparation failure. |
+| Alert, action sheet or loading | Restore Web rendering so the overlay and its dimming backdrop cover the controls correctly. |
+| Menu | Keep the existing native rail behavior. |
+| Full-width foreground modal | Project the modal's controls instead of the covered page's controls. |
+| Modal that cannot use Vertical Bars | Restore Web rendering. |
+| Explicit suspension, unavailable native layout, hidden document or unsupported keyboard/viewport geometry | Preserve the existing fallback behavior. |
+
+Native projection resumes only after every overlay requiring Web rendering closes. The opt-in native Vertical Bars popover described below keeps its own SwiftUI presentation and input handling. Unsupported searchable-tab configurations use the existing Web animation and share this ownership with Web glass gestures. CSS motion of supported containing surfaces also causes temporary Web rendering.
 
 During retirement, the source is restored and allowed to paint before its native cover is removed. During acquisition, the source is hidden only after a successful, current native response. Delayed responses are revalidated per control: existing eligible controls retain their native cover while content updates catch up. Only removed or ineligible sources return to Web; newly acquired sources require an exact acknowledgement. Ordinary page mutations never call the global clear operation. UIKit tab instances and items are retained, and equal frames/selections are not reapplied. Duplicate/stale activations are discarded. WebKit and UIKit still render separately: the implementation avoids an intentional blank frame, but does not provide an OS-level atomic compositing guarantee. Validate custom transitions and overlays on the app's supported simulators before rollout; unknown overlay systems are outside the automatic integration contract.
 
@@ -158,6 +172,8 @@ Omitting `controls` enables `tabs`, `toolbar`, `segment`, and `fab` for backward
 
 ### Popovers anchored to Vertical Bars
 
+**Native popover presentation is Vertical Bars only.** It requires an accepted native Vertical Bars `ion-button` anchor; enabling `controls.popover` does not make ordinary toolbar or body popovers native. This feature also works with the standalone Vertical Bars runtime, without enabling the full Native UI Shell.
+
 Enable `controls.popover` together with `controls.toolbar` to present popovers from accepted native Vertical Bars `ion-button` controls:
 
 ```ts
@@ -168,9 +184,15 @@ await enableNativeUIShell({
 
 The same option is available through `enableVerticalControlArea()`. Use an `ion-popover` whose `trigger` identifies the projected button, or pass that button's click event to `PopoverController.create({ event, ... })`. The button must be accepted by native Vertical Bars; regular toolbar buttons, body controls, and missing or rejected anchors retain Ionic's Web presentation.
 
-The page's native controls stay projected throughout preparation, presentation and dismissal. If the same native anchor accepts a tap while Ionic is still dismissing, one activation is retained and revalidated after cleanup; repeated taps coalesce. The relay prepares its child WebView while Ionic initializes the content, bypasses the Web enter animation, and presents through the button's standard SwiftUI popover. It does not resize or reparent the source WebView. Ionic retains its controller, lifecycle, live application handlers and dismissal data; the live content temporarily moves into the child document and is restored during cleanup.
+When Vertical Bars return to Web rendering, the runtime measures the current native back button, toolbar actions and tab surfaces before retiring them. Web fallback uses those rectangles and paints before native removal. Measurements are tied to the source elements and viewport; unavailable measurements use the CSS layout. This aligns placement and size, but the Web glass and icon rendering can still differ from system materials.
 
-Only one popover is relayed at a time. Opening another overlay or menu, leaving the page, suspending the shell, or losing the native layout restores Web rendering. Modal, sheet and alert relay are outside this feature. Native presentation owns the arrow, corners and animation; custom Web enter/leave animations do not replace them. Initial content dimensions come from Ionic; arbitrary cross-document CSS, document-bound queries and full VoiceOver/hardware-keyboard parity are not guaranteed. Failure to prepare or find the native anchor restores the Web popover.
+The page's native controls stay projected throughout preparation, presentation and dismissal. If the same native anchor accepts a tap while Ionic is still dismissing, one activation is retained and revalidated after cleanup; repeated taps coalesce. The relay prepares its child WebView while Ionic initializes the content, completes the Web enter animation without motion behind the hidden source host, and presents through the button's standard SwiftUI popover. It does not resize or reparent the source WebView. Ionic retains its controller, lifecycle, live application handlers and dismissal data; the live content temporarily moves into the child document and is restored during cleanup.
+
+Only one popover is relayed at a time. A nested popover or modal created in the child document is moved as a live element back to the source document before the child closes, including overlays appended outside the relayed content. It continues as a Web overlay with its handlers and dismissal data; its presentation event is not replayed. Opening another overlay or menu, leaving the page, suspending the shell, or losing the native layout restores Web rendering. Modal, sheet and alert relay are outside this feature.
+
+Native presentation owns the arrow, corners and animation; custom Web enter/leave animations do not replace them. The source enter builder runs once with zero duration and delay (including child animations), using the native anchor rectangle for the default `reference="trigger"` layout and visible state for Web fallback. Explicit `reference="event"` retains Ionic’s event-coordinate semantics. An explicit `enterAnimation` is honored; otherwise this package’s iOS popover builder is used. Set `enterAnimation` on the overlay to use a custom builder rather than relying on global `popoverEnter` configuration. Material Design (`md`) popovers keep Ionic’s Web presentation. Initial content dimensions come from Ionic.
+
+The relay copies document and popover shadow styles and preserves the content border spacing. Before native presentation it compares selected computed layout and appearance properties at the source dimensions. Detected differences, unsupported ancestor visual effects or size containers, and content exceeding 1,000 elements restore the live Web popover. Changes to mirrored ancestor attributes or source head styles also restore Web rendering. This is a conservative compatibility check, not a guarantee for arbitrary CSS (including pseudo-elements and dynamic CSSOM changes), document-bound queries, or full VoiceOver/hardware-keyboard parity. Failure to prepare or find the native anchor restores the Web popover. A popover opened from a Vertical Bars button also returns the rail to Web projection for the remainder of that presentation; dismissal restores native projection.
 
 For a custom modal or overlay that Native UI Shell cannot detect, acquire a suspension before presenting it. The resolved suspension means projected controls have returned to Web rendering. Always release it after dismissal:
 

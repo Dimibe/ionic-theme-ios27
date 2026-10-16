@@ -19,6 +19,7 @@ interface ShellMock extends ShellMockCore {
   tabRetirements: number;
   retirementDetails: { path: string; tabs: string }[];
   preparedPopovers: number;
+  geometry?: Record<string, { x: number; y: number; width: number; height: number }>;
 }
 
 const mockNative = async (page: Page, fail = false, nativeEdge: 'leading' | 'trailing' | null | 'unreported' = 'trailing') => {
@@ -57,6 +58,9 @@ const mockNative = async (page: Page, fail = false, nativeEdge: 'leading' | 'tra
       async configure(options: { verticalBarsOnly?: boolean }) {
         this.configuredWith = options;
         return { supported: true, verticalBars: nativeEdge !== null };
+      },
+      async getVerticalBarsGeometry() {
+        return { revision: this.updates.at(-1)?.revision, items: (this as ShellMock).geometry ?? {} };
       },
       async getWebViewMetrics() {
         return { radius: 0 };
@@ -2836,6 +2840,55 @@ test('native handoff crossfades visual opacity while transferring ownership once
   await expect(segment).toHaveCSS('visibility', 'hidden');
 });
 
+for (const reduced of [false, true])
+  test(`Vertical Bars use shared handoff timing and retire only visuals (${reduced ? 'reduced' : 'animated'})`, async ({ page }) => {
+    await page.setViewportSize({ width: 700, height: 900 });
+    await page.emulateMedia({ reducedMotion: reduced ? 'reduce' : 'no-preference' });
+    await mockNative(page);
+    await page.goto('/main/index/alert');
+    await page.locator('ion-app').evaluate((app) => app.classList.add('ios-theme-vertical-bars'));
+    const source = page.locator('app-alert ion-back-button');
+    const clone = page.locator('.ios-theme-vertical-bars-back-button-projection');
+    await expect(source).toHaveAttribute('data-native-ui-shell-vertical-bars', '');
+    await expect(clone).toHaveCount(0);
+    await page.evaluate(() => {
+      const animate = Element.prototype.animate;
+      Element.prototype.animate = function (frames, options) {
+        const result = animate.call(this, frames, options);
+        if (this.matches('.ios-theme-vertical-bars-back-button-projection') && result.effect?.getTiming().duration === 180) {
+          result.pause();
+          result.currentTime = 90;
+        }
+        return result;
+      };
+    });
+    await page.getByText('present:button-only', { exact: true }).click();
+    await expect(clone).toHaveCount(1);
+    await expect(source).not.toHaveAttribute('data-native-ui-shell-vertical-bars');
+    if (reduced) {
+      await expect(clone).toHaveCSS('opacity', '1');
+      expect(await clone.evaluate((el) => el.getAnimations().length)).toBe(0);
+    } else {
+      await expect(clone).toHaveAttribute('data-native-ui-shell-fading', '');
+      expect(await clone.evaluate((el) => Number(getComputedStyle(el).opacity))).toBeCloseTo(0.5, 1);
+      await expect(clone).toHaveJSProperty('inert', false);
+      await clone.evaluate((el) => el.getAnimations().forEach((animation) => animation.finish()));
+    }
+    await page.locator('ion-alert').evaluate((alert: HTMLIonAlertElement) => alert.dismiss());
+    await expect(source).toHaveAttribute('data-native-ui-shell-vertical-bars', '');
+    if (!reduced) {
+      await expect(clone).toHaveJSProperty('inert', true);
+      await expect(clone).toHaveAttribute('aria-hidden', 'true');
+      await expect(clone).toHaveCSS('pointer-events', 'none');
+      expect(await clone.evaluate((el) => Number(getComputedStyle(el).opacity))).toBeCloseTo(0.5, 1);
+      await clone.evaluate((el) => el.getAnimations().forEach((animation) => animation.finish()));
+    }
+    await expect(clone).toHaveCount(0);
+    expect(await page.evaluate(() => Capacitor.registerPlugin<ShellMock>('IonicNativeUIShell').updates.at(-1)!.transitionDuration)).toBe(
+      reduced ? 0 : 180,
+    );
+  });
+
 test('reduced motion hands off without a crossfade', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await mockNative(page);
@@ -3072,7 +3125,7 @@ for (const type of ['normal', 'card', 'sheet']) {
     await page.getByText(`present:${type}`, { exact: true }).click();
     const modal = page.locator('ion-modal');
     const close = modal.locator('ion-toolbar ion-button').first();
-    await expect(close).toHaveAttribute('data-native-ui-shell', '');
+    await expect(close).toHaveAttribute('data-native-ui-shell-vertical-bars-member', '');
     await expect
       .poll(() =>
         page.evaluate(() => {
@@ -3105,7 +3158,7 @@ for (const type of ['normal', 'card', 'sheet']) {
     await activate(page, 'Close');
     await expect(modal).toBeVisible();
     await page.setViewportSize({ width: 700, height: 900 });
-    await expect(close).toHaveAttribute('data-native-ui-shell', '');
+    await expect(close).toHaveAttribute('data-native-ui-shell-vertical-bars-member', '');
     await modal.evaluate((element: HTMLIonModalElement) => {
       element.canDismiss = false;
     });
@@ -3120,7 +3173,7 @@ for (const type of ['normal', 'card', 'sheet']) {
   });
 }
 
-test('vertical tab bar fades only when its Web fallback appears', async ({ page }) => {
+test('vertical tab bar skips modal presentation fade and fades back to native', async ({ page }) => {
   await page.setViewportSize({ width: 700, height: 900 });
   await mockNative(page);
   await page.goto('/main/index/modal');
@@ -3137,12 +3190,13 @@ test('vertical tab bar fades only when its Web fallback appears', async ({ page 
     };
   });
   await page.getByText('present:normal', { exact: true }).click();
-  await expect(bar).toHaveAttribute('data-fade-frames', JSON.stringify([{ opacity: 0 }, { opacity: 1 }]));
-  await expect(bar).toHaveAttribute('data-fade-count', '1');
-  await expect(page.locator('ion-modal ion-toolbar ion-button').nth(1)).toHaveAttribute('data-native-ui-shell', '');
+  await expect(bar).not.toHaveAttribute('data-fade-frames');
+  await expect(bar).not.toHaveAttribute('data-fade-count');
+  await expect(page.locator('ion-modal ion-toolbar ion-button').nth(1)).toHaveAttribute('data-native-ui-shell-vertical-bars-member', '');
   await activate(page, 'Done', true);
   await expect(page.locator('ion-modal')).toHaveCount(0);
   await expect(bar).toHaveAttribute('data-native-ui-shell', '');
+  await expect(bar).toHaveAttribute('data-fade-frames', JSON.stringify([{ opacity: 1 }, { opacity: 0 }]));
   await expect(bar).toHaveAttribute('data-fade-count', '1');
 });
 
@@ -3315,6 +3369,9 @@ for (const projection of ['source', 'system'] as const) {
     for (const placement of ['Grouped', 'Standalone', 'Separate']) {
       await page.locator('ion-select').click();
       await page.getByRole('radio', { name: placement, exact: true }).click();
+      // ionChange updates native state before the select's dismissal finishes.
+      // Wait for the overlay to close before attempting the next open.
+      await expect(page.locator('ion-select-popover')).toHaveCount(0);
       await expect
         .poll(() =>
           page.evaluate(() =>
@@ -3421,6 +3478,8 @@ for (const standalone of [false, true])
       await activate(page, 'Open popover');
       const relay = await opened;
       await expect(relay.getByText('Toolbar popover', { exact: true })).toBeVisible();
+      // Playwright visibility and native accessibility do not reject opacity:0.
+      await expect(relay.locator('ion-popover .popover-content')).toHaveCSS('opacity', '1');
       expect(await relay.evaluate(() => document.compatMode)).toBe('CSS1Compat');
       expect((await relay.getByRole('button', { name: 'Increment', exact: true }).boundingBox())!.height).toBeLessThan(80);
       await expect(trigger).toHaveAttribute('data-native-ui-shell-vertical-bars-member', '', { timeout: 15000 });
@@ -3460,21 +3519,97 @@ test('ordinary popovers stay in the source WebView', async ({ page }) => {
   await page.getByRole('button', { name: 'Close popover', exact: true }).click();
 });
 
-test('Vertical Bars popover preparation failure restores usable Web content and projection updates', async ({ page }) => {
-  await page.setViewportSize({ width: 700, height: 900 });
-  await mockNative(page);
-  await page.goto('/main/index/popover');
-  await page.locator('ion-app').evaluate((app) => app.classList.add('ios-theme-vertical-bars'));
-  const trigger = page.locator('#native-popover-trigger');
-  await expect(trigger).toHaveAttribute('data-native-ui-shell-vertical-bars-member', '', { timeout: 15000 });
-  await activate(page, 'Open popover');
-  await expect(page.getByText('Toolbar popover', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Increment', exact: true }).click();
-  await expect(page.getByText('Count: 1', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Close popover', exact: true }).click();
-  await expect(trigger).toHaveAttribute('data-native-ui-shell-vertical-bars-member', '', { timeout: 15000 });
-  expect(page.context().pages()).toHaveLength(1);
-});
+const expectWebPopoverPainted = async (page: Page) => {
+  const overlay = page.locator('ion-popover[trigger="native-popover-trigger"]');
+  await expect(overlay).toHaveCSS('opacity', '1');
+  await expect(overlay.locator('.popover-content').first()).toHaveCSS('opacity', '1');
+  await expect(overlay.locator('.popover-arrow').first()).toHaveCSS('opacity', '1');
+  const backdropOpacity = await overlay.evaluate((el) => getComputedStyle(el).getPropertyValue('--backdrop-opacity').trim());
+  await expect(overlay.locator('ion-backdrop').first()).toHaveCSS('opacity', String(Number(backdropOpacity)));
+  await expect(overlay).toHaveJSProperty('animated', true);
+  const box = (await overlay.locator('.popover-content').first().boundingBox())!;
+  const viewport = page.viewportSize()!;
+  expect(box.width).toBeGreaterThan(0);
+  expect(box.height).toBeGreaterThan(0);
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.y).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+  expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
+};
+
+for (const edge of ['leading', 'trailing'] as const)
+  test(`Vertical Bars popover preparation failure restores usable Web content and projection updates (${edge})`, async ({ page }) => {
+    await page.setViewportSize({ width: 700, height: 900 });
+    await mockNative(page, false, edge);
+    await page.goto('/main/index/popover');
+    await page.locator('ion-app').evaluate((app, edge) => {
+      app.classList.add('ios-theme-vertical-bars');
+      app.classList.toggle('ios-theme-vertical-bars-left', edge === 'leading');
+    }, edge);
+    const trigger = page.locator('#native-popover-trigger');
+    await expect(trigger).toHaveAttribute('data-native-ui-shell-vertical-bars-member', '', { timeout: 15000 });
+    const anchor = { x: edge === 'leading' ? 18 : 624, y: 240, width: 48, height: 48 };
+    await page.evaluate((anchor) => {
+      const mock = Capacitor.registerPlugin<ShellMock>('IonicNativeUIShell');
+      const id = mock.updates
+        .at(-1)!
+        .controls.flatMap((c) => c.items)
+        .find((i) => i.accessibilityLabel === 'Open popover')!.id;
+      mock.geometry = { [id]: anchor };
+    }, anchor);
+    await page
+      .locator('ion-popover[trigger="native-popover-trigger"]')
+      .evaluate((overlay) => overlay.style.setProperty('--backdrop-opacity', '0.24'));
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      await activate(page, 'Open popover');
+      await expect(page.getByText('Toolbar popover', { exact: true })).toBeVisible();
+      await expectWebPopoverPainted(page);
+      await expect(trigger).not.toHaveAttribute('data-native-ui-shell-vertical-bars-member');
+      await expect(page.locator('.ios-theme-vertical-bars-back-button-projection')).toBeVisible();
+      await expect
+        .poll(() => page.evaluate(() => Capacitor.registerPlugin<ShellMock>('IonicNativeUIShell').updates.at(-1)?.controls.length))
+        .toBe(0);
+      const box = (await page.locator('ion-popover[trigger="native-popover-trigger"] .popover-content').boundingBox())!;
+      expect(edge === 'leading' ? box.x : box.x + box.width).toBeCloseTo(edge === 'leading' ? anchor.x : anchor.x + anchor.width, 0);
+      expect(box.y).toBeCloseTo(anchor.y, 0);
+      if (attempt === 1) {
+        const screenshot = test.info().outputPath('web-popover-fallback-painted.png');
+        await page.screenshot({ path: screenshot });
+        await test.info().attach('web-popover-fallback-painted', { path: screenshot, contentType: 'image/png' });
+      }
+      await page.getByRole('button', { name: 'Increment', exact: true }).click();
+      await expect(page.getByText(`Count: ${attempt}`, { exact: true })).toBeVisible();
+      await page.getByRole('button', { name: 'Close popover', exact: true }).click();
+      await expect(trigger).toHaveAttribute('data-native-ui-shell-vertical-bars-member', '', { timeout: 15000 });
+      expect(page.context().pages()).toHaveLength(1);
+    }
+  });
+
+for (const refusal of ['disabled', 'md'])
+  test(`Vertical Bars popover rejected before preparation returns the rail to Web (${refusal})`, async ({ page }) => {
+    await page.setViewportSize({ width: 700, height: 900 });
+    await mockNative(page);
+    await page.goto('/main/index/popover');
+    await page.locator('ion-app').evaluate((app) => app.classList.add('ios-theme-vertical-bars'));
+    const trigger = page.locator('#native-popover-trigger');
+    await expect(trigger).toHaveAttribute('data-native-ui-shell-vertical-bars-member', '');
+    await page.locator('ion-popover[trigger="native-popover-trigger"]').evaluate((overlay: HTMLIonPopoverElement, refusal) => {
+      if (refusal === 'disabled') overlay.setAttribute('data-shell', 'disabled');
+      else overlay.mode = 'md';
+    }, refusal);
+    await activate(page, 'Open popover');
+    await expect(page.getByText('Toolbar popover', { exact: true })).toBeVisible();
+    await expect(trigger).not.toHaveAttribute('data-native-ui-shell-vertical-bars-member');
+    await expect(page.locator('.ios-theme-vertical-bars-back-button-projection')).toBeVisible();
+    await expect
+      .poll(() => page.evaluate(() => Capacitor.registerPlugin<ShellMock>('IonicNativeUIShell').updates.at(-1)?.controls.length))
+      .toBe(0);
+    expect(await page.evaluate(() => Capacitor.registerPlugin<ShellMock>('IonicNativeUIShell').preparedPopovers)).toBe(0);
+    await page.getByRole('button', { name: 'Increment', exact: true }).click();
+    await expect(page.getByText('Count: 1', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Close popover', exact: true }).click();
+    await expect(trigger).toHaveAttribute('data-native-ui-shell-vertical-bars-member', '');
+  });
 
 for (const disabled of [false, true])
   test(`Vertical Bars popover handles anchor clicks during dismissal (${disabled ? 'disabled before replay' : 'reopens once'})`, async ({
@@ -3563,13 +3698,277 @@ for (const failure of ['reject', 'timeout'] as const)
     await expect((await reopened).getByText('Toolbar popover', { exact: true })).toBeVisible();
   });
 
-for (const nestedInRelay of [false, true])
-  test(`Vertical Bars popover restores nested overlays (${nestedInRelay ? 'inline content' : 'source controller'})`, async ({ page }) => {
+for (const nestedTag of ['ion-popover', 'ion-modal'] as const)
+  for (const nestedInRelay of [false, true, 'sibling'] as const)
+    test(`Vertical Bars popover restores nested ${nestedTag} (${nestedInRelay === 'sibling' ? 'child document sibling' : nestedInRelay ? 'inline content' : 'source controller'})`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 700, height: 900 });
+      await mockNative(page);
+      await page.goto('/main/index/popover');
+      await page.locator('ion-app').evaluate((app) => app.classList.add('ios-theme-vertical-bars'));
+      await expect(page.locator('#native-popover-trigger')).toHaveAttribute('data-native-ui-shell-vertical-bars-member', '');
+      await page.evaluate(() =>
+        Object.assign(Capacitor.registerPlugin('IonicNativeUIShell'), {
+          async prepareOverlay() {},
+          async presentOverlay() {},
+          async dismissOverlay() {},
+        }),
+      );
+      await page.evaluate(() => {
+        const open = window.open.bind(window);
+        window.open = (...args) => {
+          const relay = open(...args);
+          (window as Window & { reviewRelay?: Window | null }).reviewRelay = relay;
+          return relay;
+        };
+      });
+      const opened = page.waitForEvent('popup');
+      await activate(page, 'Open popover');
+      const relay = await opened;
+      await expect(relay.getByText('Toolbar popover', { exact: true })).toBeVisible();
+      await page.evaluate(
+        async ({ nestedInRelay, nestedTag }) => {
+          const nested = document.createElement(nestedTag);
+          nested.id = 'nested-review-popover';
+          const lifecycle = { will: 0, did: 0, data: undefined as unknown };
+          (window as Window & { nestedLifecycle?: typeof lifecycle }).nestedLifecycle = lifecycle;
+          const name = nestedTag === 'ion-modal' ? 'Modal' : 'Popover';
+          nested.addEventListener(`ion${name}WillPresent`, () => lifecycle.will++);
+          nested.addEventListener(`ion${name}DidDismiss`, (event) => {
+            lifecycle.did++;
+            lifecycle.data = (event as CustomEvent).detail.data;
+          });
+          const body = document.createElement('div');
+          const title = document.createElement('p');
+          title.textContent = 'Nested content';
+          body.append(title);
+          const action = document.createElement('button');
+          action.textContent = 'Nested action';
+          action.addEventListener('click', () => (action.textContent = 'Nested action completed'));
+          body.append(action);
+          nested.component = body;
+          if (nestedInRelay) {
+            // The Angular content remains live in the child document.
+            const windows = window as Window & { reviewRelay?: Window };
+            const target =
+              nestedInRelay === 'sibling'
+                ? windows.reviewRelay!.document.body
+                : windows.reviewRelay!.document.querySelector('ion-popover > div')!;
+            target.append(nested);
+          } else document.querySelector('ion-app')!.append(nested);
+          await nested.present();
+        },
+        { nestedInRelay, nestedTag },
+      );
+      await expect.poll(() => relay.isClosed()).toBe(true);
+      await expect(page.getByText('Nested content', { exact: true })).toBeVisible();
+      await page.getByRole('button', { name: 'Nested action', exact: true }).click();
+      await expect(page.getByRole('button', { name: 'Nested action completed', exact: true })).toBeVisible();
+      await page
+        .locator('#nested-review-popover')
+        .evaluate(async (overlay: HTMLIonPopoverElement) => overlay.dismiss({ saved: true }, 'confirm', false));
+      expect(await page.evaluate(() => (window as Window & { nestedLifecycle?: unknown }).nestedLifecycle)).toEqual({
+        will: 1,
+        did: 1,
+        data: { saved: true },
+      });
+      await expect(page.getByText('Toolbar popover', { exact: true })).toBeVisible();
+      await expectWebPopoverPainted(page);
+      await page.getByRole('button', { name: 'Close popover', exact: true }).click();
+      await expect(page.locator('#native-popover-trigger')).toHaveAttribute('data-native-ui-shell-vertical-bars-member', '');
+    });
+
+for (const [route, tag, trigger, keep] of [
+  ['alert', 'ion-alert', 'present:button-only', false],
+  ['action-sheet', 'ion-action-sheet', 'present:button-only', false],
+  ['progress-indicators', 'ion-loading', 'Show IconOnly', false],
+  ['popover', 'ion-popover', '#click-trigger-button', true],
+  ['toast', 'ion-toast', 'present:middle', true],
+] as const) {
+  test(`Vertical Bars overlay policy: ${tag}`, async ({ page }) => {
+    await page.setViewportSize({ width: 700, height: 900 });
+    await mockNative(page);
+    await page.goto(`/main/index/${route}`);
+    await page.locator('ion-app').evaluate((app) => app.classList.add('ios-theme-vertical-bars'));
+    const back = page.locator('ion-back-button:not(.ion-cloned-element)').first();
+    await expect(back).toHaveAttribute('data-native-ui-shell-vertical-bars', '');
+    const actionLabel = await page.evaluate(
+      () =>
+        Capacitor.registerPlugin<ShellMock>('IonicNativeUIShell')
+          .updates.at(-1)!
+          .controls.find((control) => control.kind === 'ion-back-button')!.items[0].accessibilityLabel!,
+    );
+    await back.evaluate((element) => {
+      element.setAttribute('data-clicks', '0');
+      element.addEventListener(
+        'click',
+        (event) => {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          element.setAttribute('data-clicks', String(Number(element.getAttribute('data-clicks')) + 1));
+        },
+        true,
+      );
+    });
+    if (trigger.startsWith('#')) await page.locator(trigger).click();
+    else await page.getByText(trigger, { exact: true }).click();
+    const overlay = page.locator(`${tag}:not(.overlay-hidden)`).last();
+    await expect(overlay).toBeVisible();
+    if (keep) {
+      await expect(back).toHaveAttribute('data-native-ui-shell-vertical-bars', '');
+      await activate(page, actionLabel);
+      await expect(back).toHaveAttribute('data-clicks', '1');
+    } else {
+      await expect
+        .poll(() => page.evaluate(() => Capacitor.registerPlugin<ShellMock>('IonicNativeUIShell').updates.at(-1)?.controls.length))
+        .toBe(0);
+      await expect(page.locator('.ios-theme-vertical-bars-back-button-projection')).toBeVisible();
+    }
+    await overlay.evaluate((element: HTMLElement & { dismiss(): Promise<boolean> }) => element.dismiss());
+    await expect(back).toHaveAttribute('data-native-ui-shell-vertical-bars', '');
+    await activate(page, actionLabel);
+    await expect(back).toHaveAttribute('data-clicks', keep ? '2' : '1');
+  });
+}
+
+for (const invalidation of ['resize', 'mode'])
+  test(`Vertical Bars Web fallback geometry invalidates on ${invalidation}`, async ({ page }) => {
+    await page.setViewportSize({ width: 700, height: 900 });
+    await mockNative(page);
+    await page.goto('/main/index/alert');
+    await page.locator('ion-app').evaluate((app) => app.classList.add('ios-theme-vertical-bars'));
+    const back = page.locator('ion-back-button:not(.ion-cloned-element)').first();
+    await expect(back).toHaveAttribute('data-native-ui-shell-vertical-bars', '');
+    await page.evaluate(() => {
+      const mock = Capacitor.registerPlugin<ShellMock>('IonicNativeUIShell');
+      const tabs = mock.updates.at(-1)!.controls.find((control) => control.kind === 'ion-tab-bar')!;
+      mock.geometry = {
+        BackButton: { x: 628, y: 176, width: 48, height: 48 },
+        __tabBar: { x: 628, y: 600, width: 48, height: 220 },
+        ...Object.fromEntries(tabs.items.map((item, index) => [item.id, { x: 632, y: 604 + index * 50, width: 40, height: 50 }])),
+      };
+    });
+    await page.getByText('present:button-only', { exact: true }).click();
+    const clone = page.locator('.ios-theme-vertical-bars-back-button-projection');
+    await expect(clone).toBeVisible();
+    await expect.poll(() => clone.boundingBox()).toEqual({ x: 628, y: 176, width: 48, height: 48 });
+    await expect.poll(() => page.locator('ion-tab-bar').boundingBox()).toEqual({ x: 628, y: 600, width: 48, height: 220 });
+    if (invalidation === 'resize') await page.setViewportSize({ width: 800, height: 900 });
+    else await page.locator('ion-app').evaluate((app) => app.classList.remove('ios-theme-vertical-bars'));
+    await expect(page.locator('ion-tab-bar')).not.toHaveAttribute('data-native-rail-geometry');
+    if (invalidation === 'mode') {
+      await page.locator('ion-app').evaluate((app) => app.classList.add('ios-theme-vertical-bars'));
+      await page.setViewportSize({ width: 800, height: 900 });
+    }
+    await expect.poll(async () => (await clone.boundingBox())?.y).toBe(220);
+    await page.locator('ion-alert').evaluate((overlay: HTMLIonAlertElement) => overlay.dismiss());
+    await expect(back).toHaveAttribute('data-native-ui-shell-vertical-bars', '');
+    await expect(clone).toHaveCount(0);
+  });
+
+for (const partial of [false, true])
+  test(`Vertical tab geometry survives ${partial ? 'partial' : 'full'} handoff until its fade completes`, async ({ page }) => {
+    await page.setViewportSize({ width: 700, height: 900 });
+    await mockNative(page);
+    await page.goto('/main/index/alert');
+    await page.locator('ion-app').evaluate((app) => app.classList.add('ios-theme-vertical-bars'));
+    const bar = page.locator('ion-tab-bar');
+    await expect(bar).toHaveAttribute('data-native-ui-shell-vertical-bars', '');
+    await expect(bar).not.toHaveAttribute('data-native-ui-shell-fading');
+    await page.evaluate(() => {
+      const mock = Capacitor.registerPlugin<ShellMock>('IonicNativeUIShell');
+      const tabs = mock.updates.at(-1)!.controls.find((control) => control.kind === 'ion-tab-bar')!;
+      mock.geometry = {
+        __tabBar: { x: 628, y: 600, width: 48, height: 220 },
+        ...Object.fromEntries(tabs.items.map((item, index) => [item.id, { x: 632, y: 604 + index * 50, width: 40, height: 50 }])),
+      };
+    });
+    if (partial) await bar.evaluate((el) => el.setAttribute('data-shell', 'disabled'));
+    else await page.getByText('present:button-only', { exact: true }).click();
+    await expect(bar).not.toHaveAttribute('data-native-ui-shell-vertical-bars');
+    await expect(bar).not.toHaveAttribute('data-native-ui-shell-fading');
+    await expect.poll(() => bar.boundingBox()).toEqual({ x: 628, y: 600, width: 48, height: 220 });
+    if (partial) await expect(page.locator('app-alert ion-back-button')).toHaveAttribute('data-native-ui-shell-vertical-bars', '');
+    await bar.evaluate((el) => {
+      const animate = el.animate.bind(el);
+      el.animate = (frames, options) => {
+        const animation = animate(frames, options);
+        animation.pause();
+        animation.currentTime = 90;
+        return animation;
+      };
+    });
+    if (partial) await bar.evaluate((el) => el.removeAttribute('data-shell'));
+    else await page.locator('ion-alert').evaluate((el: HTMLIonAlertElement) => el.dismiss());
+    await expect(bar).toHaveAttribute('data-native-ui-shell-vertical-bars', '');
+    await expect(bar).toHaveAttribute('data-native-ui-shell-fading', '');
+    expect(await bar.evaluate((el) => Number(getComputedStyle(el).opacity))).toBeCloseTo(0.5, 1);
+    await expect.poll(() => bar.boundingBox()).toEqual({ x: 628, y: 600, width: 48, height: 220 });
+    await bar.evaluate((el) => el.getAnimations().forEach((animation) => animation.finish()));
+    await expect(bar).not.toHaveAttribute('data-native-rail-geometry');
+  });
+
+test('Vertical Bars picker keeps input but cannot override a Web alert', async ({ page }) => {
+  await page.setViewportSize({ width: 700, height: 900 });
+  await mockNative(page);
+  await page.goto('/main/index/alert');
+  await page.locator('ion-app').evaluate((app) => app.classList.add('ios-theme-vertical-bars'));
+  const back = page.locator('ion-back-button:not(.ion-cloned-element)').first();
+  await expect(back).toHaveAttribute('data-native-ui-shell-vertical-bars', '');
+  await page.evaluate(() => {
+    const picker = document.createElement('ion-picker');
+    picker.id = 'legacy-picker';
+    document.querySelector('ion-app')!.append(picker);
+    picker.dispatchEvent(new CustomEvent('ionPickerWillPresent', { bubbles: true }));
+  });
+  const label = await page.evaluate(
+    () =>
+      Capacitor.registerPlugin<ShellMock>('IonicNativeUIShell')
+        .updates.at(-1)!
+        .controls.find((control) => control.kind === 'ion-back-button')!.items[0].accessibilityLabel!,
+  );
+  await back.evaluate((element) =>
+    element.addEventListener(
+      'click',
+      (event) => {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        element.setAttribute('data-activated', 'true');
+      },
+      true,
+    ),
+  );
+  await activate(page, label);
+  await expect(back).toHaveAttribute('data-activated', 'true');
+  await page.getByText('present:button-only', { exact: true }).click();
+  await expect(back).not.toHaveAttribute('data-native-ui-shell-vertical-bars');
+  await page.locator('#legacy-picker').evaluate((picker) => {
+    picker.dispatchEvent(new CustomEvent('ionPickerDidDismiss', { bubbles: true }));
+    picker.remove();
+  });
+  await expect(page.locator('ion-alert')).toBeVisible();
+  await expect(back).not.toHaveAttribute('data-native-ui-shell-vertical-bars');
+  await page.locator('ion-alert').evaluate((overlay: HTMLIonAlertElement) => overlay.dismiss());
+  await expect(back).toHaveAttribute('data-native-ui-shell-vertical-bars', '');
+});
+
+for (const context of ['inherited native styles', 'sibling-dependent Web fallback', 'container Web fallback']) {
+  test(`Vertical Bars popover style context (${context})`, async ({ page }) => {
+    const dependent = context !== 'inherited native styles';
     await page.setViewportSize({ width: 700, height: 900 });
     await mockNative(page);
     await page.goto('/main/index/popover');
     await page.locator('ion-app').evaluate((app) => app.classList.add('ios-theme-vertical-bars'));
     await expect(page.locator('#native-popover-trigger')).toHaveAttribute('data-native-ui-shell-vertical-bars-member', '');
+    await page.addStyleTag({
+      content:
+        context === 'container Web fallback'
+          ? 'ion-app { container-type: inline-size; } ion-app ion-popover p { color: rgb(180, 20, 60); font-size: 19px; }'
+          : dependent
+            ? 'ion-app:has(ion-router-outlet) ion-popover p { color: rgb(180, 20, 60); font-size: 19px; }'
+            : 'ion-app { --review-text: rgb(180, 20, 60); } ion-app ion-popover p { color: var(--review-text); font-size: 19px; }',
+    });
     await page.evaluate(() =>
       Object.assign(Capacitor.registerPlugin('IonicNativeUIShell'), {
         async prepareOverlay() {},
@@ -3577,37 +3976,31 @@ for (const nestedInRelay of [false, true])
         async dismissOverlay() {},
       }),
     );
-    await page.evaluate(() => {
-      const open = window.open.bind(window);
-      window.open = (...args) => {
-        const relay = open(...args);
-        (window as Window & { reviewRelay?: Window | null }).reviewRelay = relay;
-        return relay;
-      };
-    });
     const opened = page.waitForEvent('popup');
     await activate(page, 'Open popover');
     const relay = await opened;
-    await expect(relay.getByText('Toolbar popover', { exact: true })).toBeVisible();
-    await page.evaluate(async (nestedInRelay) => {
-      const nested = document.createElement('ion-popover');
-      nested.id = 'nested-review-popover';
-      const body = document.createElement('div');
-      body.textContent = 'Nested content';
-      nested.component = body;
-      if (nestedInRelay) {
-        // The Angular content remains live in the child document.
-        const windows = window as Window & { reviewRelay?: Window };
-        windows.reviewRelay!.document.querySelector('ion-popover > div')!.append(nested);
-      } else document.querySelector('ion-app')!.append(nested);
-      await nested.present();
-    }, nestedInRelay);
-    await expect.poll(() => relay.isClosed()).toBe(true);
-    await expect(page.getByText('Nested content', { exact: true })).toBeVisible();
-    await page
-      .locator('#nested-review-popover')
-      .evaluate(async (overlay: HTMLIonPopoverElement) => overlay.dismiss(undefined, undefined, false));
-    await expect(page.getByText('Toolbar popover', { exact: true })).toBeVisible();
-    await page.getByRole('button', { name: 'Close popover', exact: true }).click();
+    if (dependent) {
+      await expect.poll(() => relay.isClosed()).toBe(true);
+      await expect(page.getByText('Toolbar popover', { exact: true })).toHaveCSS('color', 'rgb(180, 20, 60)');
+      await expectWebPopoverPainted(page);
+      await expect(page.locator('#native-popover-trigger')).not.toHaveAttribute('data-native-ui-shell-vertical-bars-member');
+      await expect(page.locator('.ios-theme-vertical-bars-back-button-projection')).toBeVisible();
+      await page.getByRole('button', { name: 'Increment', exact: true }).click();
+      await expect(page.getByText('Count: 1', { exact: true })).toBeVisible();
+      await page.getByRole('button', { name: 'Close popover', exact: true }).click();
+    } else {
+      await expect(relay.getByText('Toolbar popover', { exact: true })).toHaveCSS('color', 'rgb(180, 20, 60)');
+      await relay.getByRole('button', { name: 'Increment', exact: true }).click();
+      await expect(relay.getByText('Count: 1', { exact: true })).toBeVisible();
+      await page.addStyleTag({ content: 'ion-app ion-popover p { color: rgb(20, 40, 180); }' });
+      await expect.poll(() => relay.isClosed()).toBe(true);
+      await expect(page.getByText('Count: 1', { exact: true })).toBeVisible();
+      await expect(page.getByText('Toolbar popover', { exact: true })).toHaveCSS('color', 'rgb(20, 40, 180)');
+      await expectWebPopoverPainted(page);
+      await expect(page.locator('#native-popover-trigger')).not.toHaveAttribute('data-native-ui-shell-vertical-bars-member');
+      await expect(page.locator('.ios-theme-vertical-bars-back-button-projection')).toBeVisible();
+      await page.getByRole('button', { name: 'Close popover', exact: true }).click();
+    }
     await expect(page.locator('#native-popover-trigger')).toHaveAttribute('data-native-ui-shell-vertical-bars-member', '');
   });
+}

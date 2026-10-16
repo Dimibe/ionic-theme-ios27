@@ -9,6 +9,7 @@ public class IonicNativeUIShellPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDele
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "configure", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getWebViewMetrics", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getVerticalBarsGeometry", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "update", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "clear", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "prepareOverlay", returnType: CAPPluginReturnPromise),
@@ -172,6 +173,22 @@ public class IonicNativeUIShellPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDele
         }
     }
 
+    @objc func getVerticalBarsGeometry(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let webView = self.bridge?.webView, let rail = self.verticalBars,
+                  let width = call.getDouble("viewportWidth"), width.isFinite, width > 0,
+                  webView.bounds.width > 0 else { call.resolve(["items": [:]]); return }
+            let scale = width / webView.bounds.width
+            let ids = Set(call.getArray("ids", String.self) ?? [])
+            let measured = ShellVerticalBarsGeometry.measure(in: rail.view, relativeTo: webView, ids: ids).merging(rail.measuredFrames(relativeTo: webView).filter { ids.contains($0.key) }) { _, swiftUI in swiftUI }
+            let items = measured.mapValues { frame in
+                ["x": frame.minX * scale, "y": frame.minY * scale,
+                 "width": frame.width * scale, "height": frame.height * scale]
+            }
+            call.resolve(["revision": self.revision, "items": items])
+        }
+    }
+
     @objc func clear(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { call.resolve(); return }
@@ -198,7 +215,7 @@ public class IonicNativeUIShellPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDele
         Array(controls.keys).forEach { removeControl($0, duration: duration) }
         host?.removeFromSuperview()
         host = nil
-        verticalBars?.detach()
+        verticalBars?.detach(duration: duration)
         verticalBars = nil
         rendering.clear()
         pendingTabSelections.removeAll()
@@ -268,10 +285,11 @@ public class IonicNativeUIShellPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDele
             var searches: [(ShellSearchControlling, ShellControl, CGRect, CGRect, UIView?, Bool)] = []
             var rejectedSearches: [String] = []
             if verticalBars.isEmpty || (self.keyboardVisible && !verticalSearchActive) {
-                self.verticalBars?.detach()
+                self.verticalBars?.detach(duration: duration)
                 self.verticalBars = nil
                 if self.keyboardVisible { rejectedControls.append(contentsOf: verticalBars.map(\.id)) }
             } else if let owner = self.bridge?.viewController {
+                let entering = self.verticalBars == nil
                 let rail = self.verticalBars ?? ShellVerticalBarsController(
                     activate: { [weak self] id in self?.activate(id) },
                     changed: { [weak self] id, phase, value, composing, valueVersion in
@@ -284,8 +302,10 @@ public class IonicNativeUIShellPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDele
                 } else {
                     rail.view.frame = owner.view.bounds
                 }
-                rail.apply(verticalBars, rendering: self.rendering, edge: snapshot.verticalBarEdge ?? "right")
+                // The shell owns the entry crossfade; later native updates keep SwiftUI motion.
+                rail.apply(verticalBars, rendering: self.rendering, edge: snapshot.verticalBarEdge ?? "right", animated: !entering)
                 rail.view.isHidden = false
+                if entering { ShellCrossfade.enter(rail.view, duration: duration) }
             } else {
                 rejectedControls.append(contentsOf: verticalBars.map(\.id))
             }

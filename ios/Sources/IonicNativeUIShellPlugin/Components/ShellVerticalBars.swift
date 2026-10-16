@@ -4,11 +4,12 @@ import UIKit
 
 protocol ShellVerticalBarsControlling: AnyObject {
     var view: UIView { get }
-    func attach(to owner: UIViewController, in parent: UIView)
-    @MainActor func apply(_ controls: [ShellControl], rendering: ShellRendering, edge: String)
+    func measuredFrames(relativeTo webView: UIView) -> [String: CGRect]
+    @MainActor func attach(to owner: UIViewController, in parent: UIView)
+    @MainActor func apply(_ controls: [ShellControl], rendering: ShellRendering, edge: String, animated: Bool)
     var ownsKeyboardChrome: Bool { get }
     func presentPopover(anchor: String, host: ShellOverlayHost, completion: @escaping (Bool) -> Void) -> Bool
-    func detach()
+    @MainActor func detach(duration: TimeInterval)
 }
 
 @available(iOS 26.0, *)
@@ -46,7 +47,7 @@ final class ShellVerticalBarsModel: ObservableObject {
     private var pendingSelection: ShellTabBar.PendingSelection?
     private var pendingExpiryWork: DispatchWorkItem?
 
-    func apply(_ controls: [ShellControl], rendering: ShellRendering,
+    func apply(_ controls: [ShellControl], rendering: ShellRendering, animated: Bool = true,
                now: CFAbsoluteTime = CFAbsoluteTimeGetCurrent()) {
         func item(_ source: ShellItem) -> Item {
             let image = rendering.image(source.content)
@@ -61,7 +62,7 @@ final class ShellVerticalBarsModel: ObservableObject {
                  badge: source.content.badge, disabled: source.content.disabled,
                  selected: source.content.selected)
         }
-        withAnimation(.smooth(duration: 0.3)) {
+        withAnimation(animated && !UIAccessibility.isReduceMotionEnabled ? .smooth(duration: 0.3) : nil) {
             back = controls.first(where: { $0.kind == .backButton })?.items.first.map(item)
             groups = controls.compactMap { control in
                 guard [.button, .buttons, .menuButton].contains(control.kind) else { return nil }
@@ -188,12 +189,23 @@ private struct ShellVerticalBarsButton: ToolbarContent {
     }
 }
 
+private struct ShellVerticalBarGeometryProbe: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.isUserInteractionEnabled = false
+        view.accessibilityIdentifier = "BackButton"
+        return view
+    }
+    func updateUIView(_ uiView: UIView, context: Context) {}
+}
+
 @available(iOS 26.0, *)
 private func verticalBarsBackButton(_ item: ShellVerticalBarsModel.Item, model: ShellVerticalBarsModel) -> some View {
     Button { model.activate(item.id) } label: { Image(systemName: "chevron.backward") }
         .disabled(item.disabled)
         .accessibilityLabel(item.accessibilityLabel)
         .accessibilityIdentifier("BackButton")
+        .background(ShellVerticalBarGeometryProbe())
 }
 
 @available(iOS 26.0, *)
@@ -430,6 +442,35 @@ final class ShellVerticalBarsController: ShellVerticalBarsControlling {
     private let changed: (String, ShellSearchPhase, String, Bool, Int) -> Int
 
     var view: UIView { container }
+    func measuredFrames(relativeTo webView: UIView) -> [String: CGRect] {
+        var frames: [String: CGRect] = [:]
+        let labels = Dictionary(grouping: model.tabs, by: \.accessibilityLabel)
+        var tabViews: [UIView] = []
+        func visit(_ view: UIView) {
+            guard !view.isHidden else { return }
+            if let control = view as? UIControl,
+               let label = control.accessibilityLabel, let items = labels[label], items.count == 1,
+               !control.isHidden, control.bounds.width > 0, control.bounds.height > 0 {
+                if frames[items[0].id] != nil { return }
+                frames[items[0].id] = control.convert(control.bounds, to: webView)
+                tabViews.append(control)
+            }
+            view.subviews.forEach(visit)
+        }
+        visit(container)
+        if let first = tabViews.first, tabViews.count >= model.tabs.count {
+            var ancestor: UIView? = first.superview
+            var platter: UIView?
+            while let current = ancestor, current !== container {
+                if current.bounds.width >= webView.bounds.width * 0.5 { break }
+                if current.bounds.width > 0, current.bounds.height > 0,
+                   tabViews.allSatisfy({ $0.isDescendant(of: current) }) { platter = current }
+                ancestor = current.superview
+            }
+            if let platter { frames["__tabBar"] = platter.convert(platter.bounds, to: webView) }
+        }
+        return frames
+    }
 
     var ownsKeyboardChrome: Bool { model.search?.ownsKeyboardChrome == true }
 
@@ -443,7 +484,7 @@ final class ShellVerticalBarsController: ShellVerticalBarsControlling {
         controller.layoutSearch = { [weak self] in self?.model.search?.configureField() }
     }
 
-    func attach(to owner: UIViewController, in parent: UIView) {
+    @MainActor func attach(to owner: UIViewController, in parent: UIView) {
         guard self.owner !== owner || container.superview !== parent else { return }
         detach()
         self.owner = owner
@@ -457,16 +498,14 @@ final class ShellVerticalBarsController: ShellVerticalBarsControlling {
         controller.didMove(toParent: owner)
     }
 
-    @MainActor func apply(_ controls: [ShellControl], rendering: ShellRendering, edge: String) {
+    @MainActor func apply(_ controls: [ShellControl], rendering: ShellRendering, edge: String, animated: Bool = true) {
         container.railEdge = edge
         controller.railEdge = edge
-        let tabsAppear = model.tabs.isEmpty && controls.contains { $0.kind == .tabBar && !$0.items.isEmpty }
         if let search = controls.first(where: { $0.search != nil })?.search {
             if model.search?.configuration.id == search.id { model.search?.apply(search) }
             else { model.search = ShellVerticalSearchModel(search, in: container, activate: model.activate, changed: changed) }
         } else { model.search = nil }
-        model.apply(controls, rendering: rendering)
-        if tabsAppear { ShellCrossfade.enter(container, duration: ShellCrossfade.duration(180)) }
+        model.apply(controls, rendering: rendering, animated: animated)
         controller.overrideUserInterfaceStyle = controls.contains(where: \.dark) ? .dark : .light
     }
 
@@ -500,10 +539,10 @@ final class ShellVerticalBarsController: ShellVerticalBarsControlling {
         return true
     }
 
-    func detach() {
+    @MainActor func detach(duration: TimeInterval = 0) {
         guard controller.parent != nil else { return }
         controller.willMove(toParent: nil)
-        container.removeFromSuperview()
+        ShellCrossfade.retire(container, duration: duration)
         controller.view.removeFromSuperview()
         controller.removeFromParent()
         owner = nil

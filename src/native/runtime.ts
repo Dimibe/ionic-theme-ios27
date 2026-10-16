@@ -1,3 +1,10 @@
+import { popoverTrigger } from './overlays/popover';
+import {
+  alignVerticalTabBar,
+  forgetVerticalBarFrame,
+  rememberVerticalBarFrame,
+  validVerticalBarFrame,
+} from './shared/vertical-bars-geometry';
 import { projectionIds } from './shared/projection-id';
 import { inVerticalBarsSurface, topModal, modalUsesVerticalBars, modalVerticalBarFrame } from './shared/modal';
 import type { PluginListenerHandle } from '@capacitor/core';
@@ -31,6 +38,8 @@ import { CSS_MOTION_EVENTS } from './shared/events';
 import { createCrossfade, fadeMarker } from './shared/crossfade';
 
 const overlays = 'ion-modal, ion-popover, ion-alert, ion-action-sheet, ion-loading, ion-picker, ion-toast, ion-menu';
+// Only these Web overlays leave the rail's display and interaction intact.
+const railPreservingOverlays = 'ion-toast, ion-popover, ion-picker';
 const overlayNames = ['Modal', 'Popover', 'Alert', 'ActionSheet', 'Loading', 'Picker', 'Toast'];
 const verticalBarsMarker = 'data-native-ui-shell-vertical-bars';
 const verticalBarsMemberMarker = 'data-native-ui-shell-vertical-bars-member';
@@ -61,6 +70,7 @@ export const createRuntime = async (
   const pages = new Set<HTMLElement>();
   const verticalBarsPages = createVerticalBarsPageState();
   const presented = new Set<HTMLElement>();
+  const railPopovers = new WeakSet<HTMLElement>();
   const manualSuspensions = new Set<symbol>();
   const moving = new Map<HTMLElement, Set<string>>();
   const observed = new Set<Element | ShadowRoot>();
@@ -68,6 +78,7 @@ export const createRuntime = async (
   let actions = new Map<string, HTMLElement>();
   let nextId = 0;
   let revision = 0;
+  const tabGeometry = new Map<HTMLElement, () => void>();
   let acceptedRevision = 0;
   let updatingRevision: number | undefined;
   let pendingActivations: ShellActivation[] = [];
@@ -132,7 +143,7 @@ export const createRuntime = async (
     lastSnapshot = '';
     search.release(element);
     element.removeAttribute(marker);
-    if (!stopped) crossfade.play(element, false, isVerticalBarsSource(element) ? !element.matches('ion-tab-bar') : handoffInstant);
+    if (!stopped) crossfade.play(element, false, handoffInstant || (isVerticalBarsSource(element) && !element.matches('ion-tab-bar')));
     if (element.getAttribute('aria-hidden') === 'true') {
       const previous = sources.get(element);
       if (previous == null) element.removeAttribute('aria-hidden');
@@ -211,9 +222,11 @@ export const createRuntime = async (
         Array.from(pages).some((scope) => scope.contains(element)) ||
         Array.from(moving.keys()).some((surface) => surface.contains(element))));
   const painted = () => new Promise<void>((resolve) => win.requestAnimationFrame(() => win.requestAnimationFrame(() => resolve())));
-  const overlayOpen = (includeMenu = true, allowModal = false) => {
+  const overlayOpen = (includeMenu = true, allowModal = false, ignoredSelector?: string) => {
     const modal = topModal(doc);
-    const ignored = (element: Element) => allowModal && !!modal && modalUsesVerticalBars(modal) && element.matches('ion-modal');
+    const ignored = (element: Element) =>
+      (!!ignoredSelector && element.matches(ignoredSelector) && !railPopovers.has(element as HTMLElement)) ||
+      (allowModal && !!modal && modalUsesVerticalBars(modal) && element.matches('ion-modal'));
     for (const element of presented) if (!element.isConnected) presented.delete(element);
     const presentedOverlayOpen = Array.from(presented).some(
       (element) => !ignored(element) && (includeMenu || !element.matches('ion-menu')),
@@ -236,10 +249,16 @@ export const createRuntime = async (
     search.keepSearchTabsVisible();
     for (const page of pages) if (!page.isConnected) pages.delete(page);
     for (const surface of moving.keys()) if (!surface.isConnected) moving.delete(surface);
-    if (doc.hidden || overlayOpen(false, true)) return [];
+    if (doc.hidden || overlayOpen(false, true, railPreservingOverlays)) return [];
     if (win.visualViewport && (win.visualViewport.scale !== 1 || win.visualViewport.offsetTop !== 0) && !search.hasActive()) return [];
-    const menuOpen = overlayOpen();
-    const candidates = unprojected(sources.keys(), () =>
+    const overlayVisible = overlayOpen();
+    // Web rail projections also hide their originals. Measure those sources
+    // without releasing the visible clones before native acknowledges ownership.
+    const measurableSources = new Set([
+      ...sources.keys(),
+      ...Array.from(doc.querySelectorAll<HTMLElement>(`[${marker}]`)).filter(isVerticalBarsSource),
+    ]);
+    const candidates = unprojected(measurableSources, () =>
       search
         .decorate(
           Array.from(doc.querySelectorAll<HTMLElement>(selector))
@@ -247,7 +266,7 @@ export const createRuntime = async (
               (element) =>
                 inVerticalBarsSurface(element) &&
                 !verticalBarsPages.isDeparted(element) &&
-                (!blocked(element) || (menuOpen && isVerticalBarsSource(element))),
+                (!blocked(element) || (overlayVisible && isVerticalBarsSource(element))),
             )
             .map(readEnabledCandidate)
             .filter((candidate): candidate is Candidate => !!candidate),
@@ -265,7 +284,7 @@ export const createRuntime = async (
       (candidate) =>
         candidate.control.kind !== 'ion-back-button' || !isVerticalBarsCandidate(candidate.element) || candidate.element === back,
     );
-    return menuOpen ? selected.filter((candidate) => isVerticalBarsCandidate(candidate.element)) : selected;
+    return overlayVisible ? selected.filter((candidate) => isVerticalBarsCandidate(candidate.element)) : selected;
   };
   const observe = () => {
     const wanted = new Set<Element | ShadowRoot>();
@@ -335,12 +354,48 @@ export const createRuntime = async (
       if (stopped || dirty || (retentions.size && !manualSuspensions.size)) return;
       const retained = new Set(candidates.flatMap(candidateSources));
       const removed = Array.from(sources.keys()).filter((element) => !retained.has(element));
+      if (removed.some(isVerticalBarsSource)) {
+        actions.forEach(forgetVerticalBarFrame);
+        try {
+          const geometry = await bounded(
+            plugin.getVerticalBarsGeometry({ viewportWidth: win.innerWidth, ids: [...actions.keys(), 'BackButton', '__tabBar'] }),
+          );
+          if (stopped || dirty || (retentions.size && !manualSuspensions.size)) return;
+          if (geometry.revision === acceptedRevision && size === `${win.innerWidth}:${win.innerHeight}`) {
+            for (const tabBar of removed.filter((element) => element.matches('ion-tab-bar'))) {
+              tabGeometry.get(tabBar)?.();
+              tabGeometry.delete(tabBar);
+              const items = new Map(
+                [...actions]
+                  .filter(
+                    ([id, element]) => element.parentElement === tabBar && geometry.items[id] && validVerticalBarFrame(geometry.items[id]),
+                  )
+                  .map(([id, element]) => [element, geometry.items[id]]),
+              );
+              if (
+                geometry.items['__tabBar'] &&
+                validVerticalBarFrame(geometry.items['__tabBar']) &&
+                items.size === tabBar.querySelectorAll('ion-tab-button').length
+              )
+                tabGeometry.set(tabBar, alignVerticalTabBar(tabBar, geometry.items['__tabBar'], items));
+            }
+            for (const [id, element] of actions) {
+              const frame = geometry.items[element.matches('ion-back-button') ? 'BackButton' : id];
+              if (frame) rememberVerticalBarFrame(element, frame);
+            }
+          }
+        } catch {
+          /* Older native binaries can still use the CSS fallback. */
+        }
+      }
       if (removed.length) {
         // Restore the source and let WebKit paint before removing its native cover.
         removed.forEach(restore);
+        if (removed.some(isVerticalBarsSource))
+          win.dispatchEvent(new CustomEvent('nativeUIShellVerticalBarsRelease', { detail: { instant: handoffInstant } }));
         // The outgoing tab is no longer visible, so waiting two frames only leaves its
         // native snapshot over the destination. Stack transitions still need the paint.
-        if (!handoffInstant && removed.some((element) => !isVerticalBarsSource(element))) {
+        if (!handoffInstant) {
           await painted();
           if (stopped || dirty) return;
         }
@@ -414,6 +469,8 @@ export const createRuntime = async (
         element.removeAttribute(verticalBarsMarker);
         verticalBarsOwners.delete(element);
       }
+      if (acceptedVerticalBarsOwners.size)
+        win.dispatchEvent(new CustomEvent('nativeUIShellVerticalBarsAcquire', { detail: { instant: handoffInstant } }));
       for (const element of acceptedVerticalBarsOwners) {
         element.setAttribute(verticalBarsMarker, '');
         verticalBarsOwners.add(element);
@@ -431,7 +488,7 @@ export const createRuntime = async (
         const newlyProjected = !sources.has(element) || !element.hasAttribute(marker);
         if (!sources.has(element)) {
           sources.set(element, element.getAttribute('aria-hidden'));
-          crossfade.play(element, true, handoffInstant || isVerticalBarsSource(element));
+          crossfade.play(element, true, handoffInstant || (isVerticalBarsSource(element) && !element.matches('ion-tab-bar')));
         }
         element.setAttribute(marker, '');
         element.setAttribute('aria-hidden', 'true');
@@ -441,6 +498,14 @@ export const createRuntime = async (
       pendingActivations = [];
       received.forEach(activate);
       await crossfade.settled();
+      // Geometry belongs to the outgoing tab visual, not to other rail owners.
+      // Keep it until that visual has completely faded back to native.
+      for (const [tabBar, restore] of tabGeometry) {
+        if (!tabBar.isConnected || acceptedVerticalBarsOwners.has(tabBar)) {
+          restore();
+          tabGeometry.delete(tabBar);
+        }
+      }
       if (invalidated) {
         dirty = true;
         // Sources that became ineligible must paint before their cover is removed.
@@ -580,19 +645,30 @@ export const createRuntime = async (
     schedule();
   });
   on(doc, 'ionTabsDidChange', endTabSwitchHandoff);
+  const overlayPresenting = (element: HTMLElement) => {
+    presented.add(element);
+    if (element.matches('ion-popover')) {
+      const trigger = popoverTrigger(element as HTMLIonPopoverElement);
+      // Remember the source before native ownership changes. A successful native
+      // popover retains projection; a Web fallback must retire the rail instead.
+      if (trigger?.matches('ion-button') && isVerticalBarsSource(trigger as HTMLElement)) railPopovers.add(element);
+      else railPopovers.delete(element);
+    }
+    if (element.matches('ion-modal')) {
+      modalPresentHandoff = true;
+      // A pending bridge update must retire the old controls immediately too.
+      if (pending) handoffInstant = true;
+    }
+    schedule();
+  };
+  // Adoption changes the document, but not the in-flight Ionic event path.
+  // Do not replay WillPresent: application handlers must run exactly once.
+  on(doc, 'nativeUIShellOverlayAdopted', (event) => overlayPresenting((event as CustomEvent<HTMLElement>).detail));
   for (const name of overlayNames) {
-    on(doc, `ion${name}WillPresent`, (event) => {
-      presented.add(event.target as HTMLElement);
-      if (name === 'Modal') {
-        modalPresentHandoff = true;
-        // WillPresent may arrive while another bridge update is awaiting its ack.
-        // Make that retirement instant too instead of racing the modal animation.
-        if (pending) handoffInstant = true;
-      }
-      schedule();
-    });
+    on(doc, `ion${name}WillPresent`, (event) => overlayPresenting(event.target as HTMLElement));
     on(doc, `ion${name}DidDismiss`, (event) => {
       presented.delete(event.target as HTMLElement);
+      railPopovers.delete(event.target as HTMLElement);
       schedule();
     });
   }
@@ -681,6 +757,8 @@ export const createRuntime = async (
       };
     },
     async destroy() {
+      tabGeometry.forEach((restore) => restore());
+      tabGeometry.clear();
       if (stopped) return;
       stopped = true;
       setNativeUIShellIntegration(doc);
@@ -715,7 +793,10 @@ export const createRuntime = async (
   };
   const activate = (event: ShellActivation) => {
     if (stopped || doc.hidden || event.revision < acceptedRevision || event.revision > revision || event.sequence <= lastSequence) return;
-    if (overlayOpen(false, true)) {
+    const element = actions.get(event.id);
+    const owner = element && Array.from(sources.keys()).find((source) => source === element || source.contains(element));
+    const ignored = owner && isVerticalBarsSource(owner) ? (retentions.size ? 'ion-toast, ion-picker' : railPreservingOverlays) : undefined;
+    if (overlayOpen(false, true, ignored)) {
       if (!manualSuspensions.size) {
         for (const retention of retentions) {
           if (retention.accepts?.(event.id) && (!retention.activation || event.sequence > retention.activation.sequence))
@@ -731,9 +812,7 @@ export const createRuntime = async (
       return;
     }
     lastSequence = event.sequence;
-    const element = actions.get(event.id);
     if (!element) return;
-    const owner = Array.from(sources.keys()).find((source) => source === element || source.contains(element));
     if (!owner || !inVerticalBarsSurface(owner)) return;
     const direct = !blocked(owner) && unprojected(sources.keys(), () => readEnabledCandidate(owner));
     const candidate = direct || read().find((candidate) => candidate.actions.has(event.id));
@@ -750,7 +829,14 @@ export const createRuntime = async (
     listener = await bounded(plugin.addListener('activate', activate));
     searchListener = await bounded(
       plugin.addListener('search', (event) => {
-        if (stopped || doc.hidden || event.revision < acceptedRevision || event.revision > revision || overlayOpen()) return;
+        if (
+          stopped ||
+          doc.hidden ||
+          event.revision < acceptedRevision ||
+          event.revision > revision ||
+          overlayOpen(true, false, nativeVerticalBars() ? (retentions.size ? 'ion-toast, ion-picker' : railPreservingOverlays) : undefined)
+        )
+          return;
         search.event(event);
       }),
     );

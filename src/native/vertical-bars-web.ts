@@ -1,3 +1,5 @@
+import { createCrossfade, fadeMarker } from './shared/crossfade';
+import { alignVerticalBarClone, verticalBarFrame } from './shared/vertical-bars-geometry';
 import { createVerticalBarsWebSearch, searchProjectionClass } from './vertical-bars-web-search';
 import { inVerticalBarsSurface, topModal } from './shared/modal';
 import type { NativeUIShellHandle, NativeUIShellOptions, NativeUIShellStatus } from './definitions';
@@ -46,6 +48,8 @@ export const createVerticalBarsWebProjection = (
   enabled: () => boolean = () => true,
 ): NativeUIShellHandle => {
   const win = doc.defaultView!;
+  const crossfade = createCrossfade(win);
+  let incomingInstant: boolean | undefined;
   const toolbarEnabled = options.controls === undefined || options.controls.toolbar === true;
   let root: HTMLElement | undefined;
   let backSource: HTMLIonBackButtonElement | undefined;
@@ -120,9 +124,12 @@ export const createVerticalBarsWebProjection = (
     return candidates.filter(({ group }) => pageOrder(group) === highestPage);
   };
   const isCurrentToolbarAction = (source: HTMLElement) => findToolbarGroups().some(({ actions }) => actions.includes(source));
-  const restore = () => {
-    search.restore();
-    backProjection?.remove();
+  const restore = (retire?: (surface: HTMLElement) => void) => {
+    search.restore(retire);
+    if (backProjection) {
+      if (retire) retire(backProjection);
+      else backProjection.remove();
+    }
     backProjection = undefined;
     if (backSource) {
       backSource.removeAttribute(marker);
@@ -133,7 +140,8 @@ export const createVerticalBarsWebProjection = (
     backSource = undefined;
     previousBackAriaHidden = null;
     for (const { projection, actions } of toolbarProjections) {
-      projection.remove();
+      if (retire) retire(projection);
+      else projection.remove();
       for (const { source, previousAriaHidden } of actions) {
         source.removeAttribute(marker);
         if (previousAriaHidden === null) source.removeAttribute('aria-hidden');
@@ -150,7 +158,8 @@ export const createVerticalBarsWebProjection = (
   const copyAttributes = (target: HTMLElement, original: HTMLElement) => {
     for (const name of ['id', 'slot', marker, 'aria-hidden']) target.removeAttribute(name);
     for (const attribute of Array.from(target.attributes))
-      if (!['class', marker].includes(attribute.name) && !original.hasAttribute(attribute.name)) target.removeAttribute(attribute.name);
+      if (!['class', marker, fadeMarker].includes(attribute.name) && !original.hasAttribute(attribute.name))
+        target.removeAttribute(attribute.name);
     for (const attribute of Array.from(original.attributes))
       if (!['id', 'slot', marker, 'aria-hidden'].includes(attribute.name)) target.setAttribute(attribute.name, attribute.value);
     target.classList.remove(prehiddenClass);
@@ -164,6 +173,7 @@ export const createVerticalBarsWebProjection = (
     target.color = original.color;
     target.mode = original.mode;
     target.text = '';
+    if (root) alignVerticalBarClone(target, original, root);
   };
   const syncAction = (target: HTMLElement, original: HTMLElement) => {
     copyAttributes(target, original);
@@ -201,6 +211,27 @@ export const createVerticalBarsWebProjection = (
       projection.classList.add(toolbarProjectionClass, 'ion-cloned-element');
       projection.style.setProperty('--ios-theme-vertical-bars-toolbar-offset', `${topOffset}px`);
       if (projection.matches('ion-buttons')) actions.forEach(({ source: action, projection: clone }) => syncAction(clone, action));
+      const frames = actions.map(({ source }) => verticalBarFrame(source));
+      if (root && frames.every((frame) => !!frame)) {
+        if (actions.length === 1) alignVerticalBarClone(projection, actions[0].source, root);
+        else {
+          const left = Math.min(...frames.map((frame) => frame!.x));
+          const top = Math.min(...frames.map((frame) => frame!.y));
+          const right = Math.max(...frames.map((frame) => frame!.x + frame!.width));
+          const bottom = Math.max(...frames.map((frame) => frame!.y + frame!.height));
+          const origin = root.getBoundingClientRect();
+          Object.assign(projection.style, {
+            left: `${left - origin.left}px`,
+            top: `${top - origin.top}px`,
+            right: 'auto',
+            bottom: 'auto',
+            width: `${right - left}px`,
+            height: `${bottom - top}px`,
+            padding: '0',
+          });
+          actions.forEach(({ source, projection: clone }) => alignVerticalBarClone(clone, source, projection));
+        }
+      }
       topOffset += actions.length * toolbarControlSize + toolbarControlGap;
     }
   };
@@ -256,6 +287,7 @@ export const createVerticalBarsWebProjection = (
       toolbarProjections.push({ source: group, projection, actions });
       topOffset += actions.length * toolbarControlSize + toolbarControlGap;
     }
+    syncExisting();
     if (nextBack || toolbarProjections.length) root.classList.add(readyClass);
     sourceObserver = new MutationObserver((records) => {
       if (
@@ -270,6 +302,12 @@ export const createVerticalBarsWebProjection = (
       sourceObserver.observe(nextBack.shadowRoot, { subtree: true, childList: true, attributes: true, attributeOldValue: true });
     for (const { group } of groups)
       sourceObserver.observe(group, { subtree: true, childList: true, attributes: true, attributeOldValue: true });
+  };
+  const reveal = () => {
+    if (incomingInstant === undefined) return;
+    for (const surface of [backProjection, ...toolbarProjections.map(({ projection }) => projection), search.surface])
+      if (surface) crossfade.play(surface, false, incomingInstant);
+    incomingInstant = undefined;
   };
   const performUpdate = () => {
     frame = 0;
@@ -293,10 +331,15 @@ export const createVerticalBarsWebProjection = (
     const projectionRoot = topModal(doc) ?? currentRoot;
     search.update(projectionRoot);
     if (!nextBack && !groups.length && !search.source) return restore();
-    if (root === (topModal(doc) ?? currentRoot) && sameSources(nextBack, groups)) return syncExisting();
+    if (root === (topModal(doc) ?? currentRoot) && sameSources(nextBack, groups)) {
+      syncExisting();
+      reveal();
+      return;
+    }
     restore();
     project(nextBack, groups);
     search.update(projectionRoot);
+    reveal();
     updates++;
   };
   const update = () => {
@@ -371,6 +414,36 @@ export const createVerticalBarsWebProjection = (
   doc.addEventListener(VERTICAL_BARS_TRANSITION_CANCELED, pageLifecycle, { capture: true, signal: listeners.signal });
   for (const name of ['ionModalWillPresent', 'ionModalDidDismiss'])
     doc.addEventListener(name, schedule, { capture: true, signal: listeners.signal });
+  win.addEventListener(
+    'nativeUIShellVerticalBarsAcquire',
+    (event) => {
+      const instant = (event as CustomEvent<{ instant: boolean }>).detail?.instant ?? true;
+      incomingInstant = undefined;
+      restore((surface) => {
+        // Keep only the outgoing visual at its last rectangle after Web ownership
+        // is released. The native acknowledgement transfers input exactly once.
+        const box = surface.getBoundingClientRect();
+        surface.style.setProperty('position', 'fixed', 'important');
+        surface.style.setProperty('display', 'block', 'important');
+        surface.style.setProperty('left', `${box.left}px`, 'important');
+        surface.style.setProperty('top', `${box.top}px`, 'important');
+        surface.style.setProperty('right', 'auto', 'important');
+        surface.style.setProperty('bottom', 'auto', 'important');
+        surface.style.setProperty('width', `${box.width}px`, 'important');
+        surface.style.setProperty('height', `${box.height}px`, 'important');
+        crossfade.retire(surface, instant);
+      });
+    },
+    { signal: listeners.signal },
+  );
+  win.addEventListener(
+    'nativeUIShellVerticalBarsRelease',
+    (event) => {
+      incomingInstant = (event as CustomEvent<{ instant: boolean }>).detail.instant;
+      void schedule();
+    },
+    { signal: listeners.signal },
+  );
   win.addEventListener('resize', schedule, { signal: listeners.signal });
   win.addEventListener('nativeUIShellRefresh', schedule, { signal: listeners.signal });
   schedule();
@@ -405,6 +478,7 @@ export const createVerticalBarsWebProjection = (
       observer.disconnect();
       sourceObserver?.disconnect();
       listeners.abort();
+      crossfade.destroy();
       restore();
     },
   };

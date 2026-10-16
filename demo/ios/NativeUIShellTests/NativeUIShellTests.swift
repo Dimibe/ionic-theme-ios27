@@ -504,6 +504,60 @@ final class NativeUIShellTests: XCTestCase {
         XCTAssertTrue(main.identifier.hasPrefix("shell-"))
     }
 
+    func testVerticalBarsActionSheetCoversWebFallback() throws {
+        let app = XCUIApplication(bundleIdentifier: "io.ionic.theme.ios27")
+        app.launch()
+        let toggle = app.webViews.switches["iPhone Duo Mode"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 15), app.debugDescription)
+        if toggle.value as? String == "0" { toggle.tap() }
+        openPage(app, name: "action-sheet")
+        let back = app.buttons["BackButton"]
+        XCTAssertTrue(back.waitForExistence(timeout: 10), app.debugDescription)
+        let before = back.frame
+        app.webViews.buttons["present:button-only"].tap()
+        let cancel = app.webViews.buttons["Cancel"]
+        XCTAssertTrue(cancel.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(back.waitForNonExistence(timeout: 5), app.debugDescription)
+        capture("vertical-bars-action-sheet-web-fallback")
+        cancel.tap()
+        XCTAssertTrue(cancel.waitForNonExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(back.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertEqual(back.frame, before)
+    }
+
+    func testVerticalBarsWebAlertFallbackAndRestoreActions() throws {
+        let app = XCUIApplication(bundleIdentifier: "io.ionic.theme.ios27")
+        app.launch()
+        let toggle = app.webViews.switches["iPhone Duo Mode"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 15), app.debugDescription)
+        if toggle.value as? String == "0" { toggle.tap() }
+        openPage(app, name: "alert")
+        let back = app.buttons["BackButton"]
+        XCTAssertTrue(back.waitForExistence(timeout: 10), app.debugDescription)
+        capture("vertical-bars-native-before-alert")
+        let backFrame = back.frame
+        let backPoint = app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: backFrame.midX, dy: backFrame.midY))
+        let sourceFrame = app.webViews.firstMatch.frame
+        for attempt in 0..<2 {
+            app.webViews.buttons["present:button-only"].tap()
+            let confirm = app.webViews.buttons["OK"]
+            XCTAssertTrue(confirm.waitForExistence(timeout: 5), app.debugDescription)
+            // Web rendering must replace the native rail beneath the alert backdrop.
+            XCTAssertTrue(back.waitForNonExistence(timeout: 5), app.debugDescription)
+            capture("vertical-bars-web-alert-\(attempt)")
+            if attempt == 0 { backPoint.tap() }
+            else { confirm.tap() }
+            XCTAssertTrue(confirm.waitForNonExistence(timeout: 5), app.debugDescription)
+            XCTAssertTrue(back.waitForExistence(timeout: 5), app.debugDescription)
+            XCTAssertEqual(back.frame.minY, backFrame.minY, accuracy: 1)
+            XCTAssertEqual(app.webViews.firstMatch.frame, sourceFrame)
+            XCTAssertTrue(app.webViews.buttons["present:button-only"].exists, "Backdrop must not activate native back")
+        }
+        back.tap()
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10), app.debugDescription)
+    }
+
     func testVerticalBarsPopoverKeepsBackgroundAndLiveActions() throws {
         let app = XCUIApplication(bundleIdentifier: "io.ionic.theme.ios27")
         app.launch()
@@ -525,6 +579,8 @@ final class NativeUIShellTests: XCTestCase {
             trigger.tap()
             let title = app.webViews.staticTexts["Toolbar popover"].firstMatch
             XCTAssertTrue(title.waitForExistence(timeout: 5), app.debugDescription)
+            let popoverWebView = app.webViews.containing(.staticText, identifier: "Toolbar popover").firstMatch
+            XCTAssertLessThan(popoverWebView.frame.width, sourceFrame.width, "Content must be in the native popover's child WebView")
             // SwiftUI's modal accessibility scope hides covered controls from XCTest.
             // Their native identities and geometry are checked again after dismissal.
             capture("vertical-popover-open-\(attempt)")
