@@ -7,7 +7,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Override point for customization after application launch.
+        do {
+            try registerNativeUICounter()
+            try registerNativeMiniPlayer()
+        }
+        catch { NSLog("Native UI registration failed: %@", String(describing: error)) }
         return true
     }
 
