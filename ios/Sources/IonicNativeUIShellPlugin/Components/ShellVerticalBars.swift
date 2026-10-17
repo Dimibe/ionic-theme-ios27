@@ -343,6 +343,7 @@ private struct ShellVerticalBarsLegacyToolbar: ViewModifier {
     @ObservedObject var model: ShellVerticalBarsModel
 
     func body(content: Content) -> some View {
+        #if canImport(SwiftUI, _version: 8.0)
         content.toolbar {
             if let back = model.back {
                 ToolbarItem(placement: .navigation) {
@@ -358,6 +359,25 @@ private struct ShellVerticalBarsLegacyToolbar: ViewModifier {
                 }
             }
         }
+        #else
+        // Older SDKs cannot use ForEach as ToolbarContent; attach each item separately.
+        let base = AnyView(content.toolbar {
+            if let back = model.back {
+                ToolbarItem(placement: .navigation) { verticalBarsBackButton(back, model: model) }
+            }
+        })
+        // Outer toolbar modifiers precede inner ones, so attach in reverse order.
+        return model.groups.reversed().reduce(base) { view, group in
+            let items = group.items.reversed().reduce(view) { view, item in
+                AnyView(view.toolbar {
+                    ShellVerticalBarsButton(model: model, id: item.id, placement: .primaryAction)
+                })
+            }
+            return group.id == model.groups.first?.id ? items : AnyView(items.toolbar {
+                ToolbarSpacer(.fixed, placement: .primaryAction)
+            })
+        }
+        #endif
     }
 }
 
