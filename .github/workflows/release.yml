@@ -56,12 +56,14 @@ jobs:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       id-token: write
 
     steps:
-      - name: Checkout code
+      - name: Checkout release tag
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
@@ -86,8 +88,33 @@ jobs:
           echo "tag=$TAG_NAME" >> $GITHUB_OUTPUT
           echo "Extracted version: $VERSION from tag: $TAG_NAME"
 
+      - name: Verify root version matches release tag
+        env:
+          VERSION: ${{ steps.tag_version.outputs.version }}
+        run: |
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          assert.match(process.env.VERSION, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/);
+          assert.equal(JSON.parse(readFileSync('package.json', 'utf8')).version, process.env.VERSION);
+          JS
+
       - name: Install dependencies
         run: npm ci
+
+      - name: Update all workspace versions
+        env:
+          VERSION: ${{ steps.tag_version.outputs.version }}
+        run: |
+          npm version "$VERSION" --workspaces --no-git-tag-version --ignore-scripts --allow-same-version
+          node --input-type=module <<'JS'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const lock = JSON.parse(readFileSync('demo/package-lock.json', 'utf8'));
+          for (const path of ['packages/capacitor-native-ui', 'packages/theme-ios27']) {
+            lock.packages[`../${path}`].version = process.env.VERSION;
+          }
+          writeFileSync('demo/package-lock.json', JSON.stringify(lock, null, 2) + '\n');
+          JS
 
       - name: Verify package version matches release tag
         env:
@@ -108,22 +135,55 @@ jobs:
       - name: Pack release archives
         run: node scripts/pack-packages.mjs --pack-destination "$RUNNER_TEMP/npm-release"
 
-      - name: Publish packages
+      - name: Commit workspace versions
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          VERSION: ${{ steps.tag_version.outputs.version }}
         run: |
-          VERSION="${{ steps.tag_version.outputs.version }}"
-          IS_STABLE=$(echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' && echo true || echo false)
-
-          echo "Publishing... $IS_STABLE"
-          if [ "$IS_STABLE" = "true" ]; then
-            npm publish "$RUNNER_TEMP/npm-release/rdlabo-capacitor-native-ui-${VERSION}.tgz" --ignore-scripts --provenance --access public --tag latest
-            npm publish "$RUNNER_TEMP/npm-release/rdlabo-ionic-theme-ios27-${VERSION}.tgz" --ignore-scripts --provenance --access public --tag latest
-          elif echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+-[0-9A-Za-z.-]+$'; then
-            npm publish "$RUNNER_TEMP/npm-release/rdlabo-capacitor-native-ui-${VERSION}.tgz" --ignore-scripts --provenance --access public --tag next
-            npm publish "$RUNNER_TEMP/npm-release/rdlabo-ionic-theme-ios27-${VERSION}.tgz" --ignore-scripts --provenance --access public --tag next
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add package-lock.json demo/package-lock.json packages/*/package.json
+          if git diff --cached --quiet; then
+            echo "Workspace versions are already current."
           else
-            echo "::error::Refusing to publish an invalid release version: $VERSION"
-            exit 1
+            git commit -m "chore: update workspace versions to $VERSION"
           fi
+          git fetch origin "$DEFAULT_BRANCH"
+          if [ "$(git rev-parse 'HEAD^{tree}')" = "$(git rev-parse "origin/$DEFAULT_BRANCH^{tree}")" ]; then
+            echo "The default branch already contains the same release tree."
+          else
+            git push origin "HEAD:$DEFAULT_BRANCH"
+          fi
+
+      - name: Publish packages
+        env:
+          VERSION: ${{ steps.tag_version.outputs.version }}
+        run: |
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          import { createHash } from 'node:crypto';
+          import { execFileSync, spawnSync } from 'node:child_process';
+          const version = process.env.VERSION;
+          assert.match(version, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/);
+          const tag = version.includes('-') ? 'next' : 'latest';
+          for (const name of ['capacitor-native-ui', 'ionic-theme-ios27']) {
+            const spec = `@rdlabo/${name}@${version}`;
+            const archive = `${process.env.RUNNER_TEMP}/npm-release/rdlabo-${name}-${version}.tgz`;
+            const existing = spawnSync('npm', ['view', spec, 'dist.integrity', '--json', '--registry=https://registry.npmjs.org'], { encoding: 'utf8' });
+            if (existing.status === 0) {
+              const integrity = 'sha512-' + createHash('sha512').update(readFileSync(archive)).digest('base64');
+              assert.equal(JSON.parse(existing.stdout), integrity, `${spec} already exists with different contents`);
+              console.log(`${spec} already published with matching contents; skipping.`);
+              continue;
+            }
+            let error;
+            try { error = JSON.parse(existing.stdout).error; } catch {}
+            assert.equal(error?.code, 'E404', `Cannot check ${spec}: ${existing.stderr}`);
+            execFileSync('npm', ['publish', archive, '--ignore-scripts', '--provenance', '--access', 'public',
+              '--registry=https://registry.npmjs.org', '--tag', tag], { stdio: 'inherit' });
+          }
+          JS
 
   authorize-candidate:
     if: >-
