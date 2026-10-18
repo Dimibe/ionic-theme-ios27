@@ -42,11 +42,13 @@ export interface VerticalControlAreaOptions {
 
 export interface NativeUIShellOptions extends VerticalControlAreaOptions {
   verticalBars?: NativeUIVerticalBarsOptions;
+  /** Ionic adapter settings. Explicit data-native-ui sources and extensions remain independent. */
+  ionic?: IonicProjectionOptions;
   /** Source subtree. Defaults to document.body. */
   root?: HTMLElement;
   /** @deprecated Call destroy() on the running handle to stop the shell. */
   enabled?: boolean;
-  /** Controls eligible for native projection. Omit to enable tabs, toolbar, segment and fab; popover always requires explicit opt-in. Partial settings override the defaults. */
+  /** @deprecated Use ionic.auto for automatic Ionic projection and verticalBars.popover for popovers. */
   controls?: NativeUIShellControls;
   /** @deprecated Use verticalBars.only. */
   verticalBarsOnly?: boolean;
@@ -55,8 +57,22 @@ export interface NativeUIShellOptions extends VerticalControlAreaOptions {
 /** @internal Resolved adapter state; not an application configuration API. */
 export interface NativeUIShellRuntimeOptions extends NativeUIShellOptions {
   source?: 'ionic' | 'html' | 'auto';
+  /** @internal Preserves legacy controls.buttons behavior for explicit sources. */
+  explicitControls?: boolean;
   nativeState?: { edge?: 'left' | 'right' };
   rail?: { host: HTMLElement; edge: 'left' | 'right' };
+}
+
+export interface IonicProjectionOptions {
+  /** Automatic Ionic projection. Defaults to true; partial objects keep omitted kinds enabled. */
+  auto?: boolean | AutoIonicControls;
+}
+
+export interface AutoIonicControls {
+  buttons?: boolean;
+  tabs?: boolean;
+  segment?: boolean;
+  fab?: boolean;
 }
 
 export interface NativeUIShellControls {
@@ -97,6 +113,8 @@ export interface NativeUIVerticalBarsOptions {
 }
 
 export interface NativeUIShellRuntimeHandle {
+  /** Schedule a source recheck. Calls coalesce; unchanged snapshots are not sent. No-op after destroy or without a runtime. */
+  markForCheck(): void;
   /** Returns the current Web/native projection state. */
   getStatus(): NativeUIShellStatus;
   /** Restores projected controls to the Web until the returned lease is resumed. */

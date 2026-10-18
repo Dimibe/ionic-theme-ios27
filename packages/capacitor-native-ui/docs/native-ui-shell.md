@@ -166,7 +166,7 @@ await shell.destroy(); // restore DOM, remove native controls and release listen
 Projection is enabled by calling the startup API. Partial settings override defaults:
 
 ```ts
-const shell = await enableNativeUIShell({ controls: { tabs: false } }); // everything except tabs
+const shell = await enableNativeUIShell({ ionic: { auto: { tabs: false } } }); // automatic Ionic projection except tabs
 await shell.disableVerticalControlArea(); // retain ordinary native controls
 await shell.enableVerticalControlArea();
 await shell.destroy(); // stop all projection
@@ -178,7 +178,7 @@ See [all configuration options](configuration.md) for defaults, rail-only usage 
 
 **Native popover presentation is Vertical Bars only.** It requires an accepted native Vertical Bars `ion-button` anchor; enabling `verticalBars.popover` does not make ordinary toolbar or body popovers native. This feature also works with the standalone Vertical Bars runtime, without enabling the full Native UI Shell.
 
-Enable `verticalBars.popover` together with `controls.buttons` to present popovers from accepted native Vertical Bars `ion-button` controls:
+Enable `verticalBars.popover` to present popovers from accepted native Vertical Bars `ion-button` controls. Automatic Ionic button projection is enabled by default; when `ionic.auto` is `false`, mark individual anchors with `data-native-ui="button"`:
 
 ```ts
 await enableNativeUIShell({
@@ -237,6 +237,7 @@ The generated reference below documents the handle returned by `enableNativeUISh
 
 * [`enableVerticalControlArea()`](#enableverticalcontrolarea)
 * [`disableVerticalControlArea()`](#disableverticalcontrolarea)
+* [`markForCheck()`](#markforcheck)
 * [`getStatus()`](#getstatus)
 * [`suspend()`](#suspend)
 * [`destroy()`](#destroy)
@@ -259,6 +260,7 @@ Enable rail projection when available, preserving other settings. Rejects after 
 
 --------------------
 
+
 ### disableVerticalControlArea()
 
 ```typescript
@@ -268,6 +270,18 @@ disableVerticalControlArea() => Promise<void>
 Restore rail sources to the Web without stopping ordinary native controls. Rejects after destroy.
 
 --------------------
+
+
+### markForCheck()
+
+```typescript
+markForCheck() => void
+```
+
+Schedule a source recheck. Calls coalesce; unchanged snapshots are not sent. No-op after destroy or without a runtime.
+
+--------------------
+
 
 ### getStatus()
 
@@ -281,6 +295,7 @@ Returns the current Web/native projection state.
 
 --------------------
 
+
 ### suspend()
 
 ```typescript
@@ -293,6 +308,7 @@ Restores projected controls to the Web until the returned lease is resumed.
 
 --------------------
 
+
 ### destroy()
 
 ```typescript
@@ -303,7 +319,9 @@ Stops synchronization, restores Web controls and releases native resources.
 
 --------------------
 
+
 ### Interfaces
+
 
 #### NativeUIShellStatus
 
@@ -313,6 +331,7 @@ Stops synchronization, restores Web controls and releases native resources.
 | **`projected`** | <code>number</code>                         |
 | **`updates`**   | <code>number</code>                         |
 | **`reason`**    | <code>string</code>                         |
+
 
 #### NativeUIShellSuspension
 

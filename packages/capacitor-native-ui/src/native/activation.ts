@@ -63,12 +63,17 @@ const stopActivation = (owner: Promise<NativeUIShellRuntimeHandle>, destruction:
   void destruction.then(release, release);
 };
 const web = (reason: string): NativeUIShellRuntimeHandle => ({
+  markForCheck: () => {},
   getStatus: () => ({ state: 'web', projected: 0, updates: 0, reason }),
   suspend: async () => ({ resume: async () => {} }),
   destroy: async () => {},
 });
 
 const combine = (native: NativeUIShellRuntimeHandle, fallback: NativeUIShellRuntimeHandle): NativeUIShellRuntimeHandle => ({
+  markForCheck() {
+    native.markForCheck();
+    fallback.markForCheck();
+  },
   getStatus() {
     const nativeStatus = native.getStatus();
     const fallbackStatus = fallback.getStatus();
@@ -102,6 +107,9 @@ const manage = (
 ): NativeUIShellRuntimeHandle => {
   let destruction: Promise<void> | undefined;
   return {
+    markForCheck: () => {
+      if (!destruction) handle.markForCheck();
+    },
     getStatus: () => (lifecycle.reason ? { ...handle.getStatus(), reason: lifecycle.reason } : handle.getStatus()),
     async suspend() {
       const lease = await handle.suspend();
@@ -177,6 +185,7 @@ export const enableNativeUIShell = (
   const controls = options.controls;
   const configuration = JSON.stringify([
     options.source ?? 'ionic',
+    options.explicitControls !== false,
     options.verticalBars?.enabled !== false,
     options.verticalBars?.placement?.edge,
     options.rail?.edge,

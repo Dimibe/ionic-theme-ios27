@@ -16,19 +16,23 @@ export const startNativeUIShell = async (
     throw new Error('Native UI requires a connected root in the current document');
   if (host && (!host.isConnected || host.ownerDocument !== document || root?.contains(host) || host.contains(root!)))
     throw new Error('The Web rail host must be connected in the current document and outside the source root');
-  const controls = input.controls;
+  const legacy = input.controls;
+  const automatic = input.ionic?.auto;
+  const controls = automatic === undefined ? legacy : typeof automatic === 'object' ? automatic : {};
+  const defaultEnabled = automatic !== false;
   const options: NativeUIShellRuntimeOptions = {
     ...input,
     root,
     source: 'auto',
+    explicitControls: automatic !== undefined || (legacy?.buttons ?? legacy?.toolbar ?? true),
     verticalBars: bars,
     controls: {
       ...controls,
-      tabs: controls?.tabs ?? true,
-      segment: controls?.segment ?? true,
-      fab: controls?.fab ?? true,
-      toolbar: controls?.buttons ?? controls?.toolbar ?? true,
-      popover: bars.popover ?? controls?.popover ?? false,
+      tabs: controls?.tabs ?? defaultEnabled,
+      segment: controls?.segment ?? defaultEnabled,
+      fab: controls?.fab ?? defaultEnabled,
+      toolbar: controls?.buttons ?? (automatic === undefined ? legacy?.toolbar : undefined) ?? defaultEnabled,
+      popover: bars.popover ?? legacy?.popover ?? false,
     },
     verticalBarsOnly: bars.only ?? input.verticalBarsOnly ?? false,
     buttonProjection: bars.buttonProjection ?? input.buttonProjection ?? 'system',
@@ -60,6 +64,7 @@ export const startNativeUIShell = async (
   let destruction: Promise<void> | undefined;
   const destroy = runtime.destroy.bind(runtime);
   const handle: NativeUIShellHandle = {
+    markForCheck: runtime.markForCheck.bind(runtime),
     getStatus: runtime.getStatus.bind(runtime),
     suspend: runtime.suspend.bind(runtime),
     enableVerticalControlArea: () => change(true),
