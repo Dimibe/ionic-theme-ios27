@@ -27,3 +27,9 @@ Existing theme entry imports and CSS/Sass paths stay unchanged after the package
 
 Build the app and check light/dark appearance, page transitions, and supported browsers. If switching away from native controls, remove their startup calls and imports before removing the direct native dependency; sync an existing Capacitor project to update its plugin integration. Check any app-local Swift code that depended on the plugin too.
 
+
+### Without Capacitor
+
+Web-only applications install just the theme and their normal Ionic dependencies. `@capacitor/core` is an optional peer, including in the transitive Native UI package; the theme imports only its plugin-free `/integration` entry. No Capacitor installation, native sync, or `enableNativeUIShell()` call is needed.
+
+To opt into native controls, declare `@rdlabo/capacitor-native-ui` directly in the application’s dependencies, install Capacitor, run `npx cap sync ios`, and explicitly call `enableNativeUIShell()`. The existing theme router animation handles coordination. On iOS without a registered plugin, explicit startup retains Web controls rather than calling an unavailable native bridge.

@@ -175,6 +175,8 @@ for (const stop of ['disable', 'destroy then disable', 'destroy', 'destroy with 
         configurable: true,
         get: () => capacitor,
         set: (value) => {
+          const available = value.isPluginAvailable;
+          value.isPluginAvailable = (name: string) => name === 'IonicNativeUIShell' || available(name);
           const register = value.registerPlugin;
           value.registerPlugin = (name: string) => (name === 'IonicNativeUIShell' ? plugin : register(name));
           capacitor = value;
@@ -215,7 +217,7 @@ for (const stop of ['disable', 'destroy then disable', 'destroy', 'destroy with 
         const state = (window as Window & { restartState: { configured: number; listeners(): number } }).restartState;
         return { configured: state.configured, listeners: state.listeners() };
       }),
-    ).toEqual({ configured: 2, listeners: 2 });
+    ).toEqual({ configured: 2, listeners: 3 });
     const destroy = page.evaluate(() => (window as Window & { restartedHandle: { destroy(): Promise<void> } }).restartedHandle.destroy());
     await page.clock.runFor(100);
     await destroy;
@@ -286,6 +288,8 @@ for (const stalled of ['configure', 'metrics listener', 'metrics', 'listener rem
         configurable: true,
         get: () => capacitor,
         set: (value) => {
+          const available = value.isPluginAvailable;
+          value.isPluginAvailable = (name: string) => name === 'IonicNativeUIShell' || available(name);
           const register = value.registerPlugin;
           value.registerPlugin = (name: string) => (name === 'IonicNativeUIShell' ? plugin : register(name));
           capacitor = value;

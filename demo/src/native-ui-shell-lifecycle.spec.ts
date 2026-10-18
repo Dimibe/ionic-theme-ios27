@@ -1,4 +1,6 @@
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
+import { Capacitor } from '@capacitor/core';
+import { configureNativeTransition } from '../../packages/capacitor-native-ui/src/native';
 import {
   enableNativeUIShell,
   enableVerticalControlArea,
@@ -63,4 +65,31 @@ test('standalone Vertical Bars forwards popover opt-in into the shared runtime',
   ).resolves.toBeDefined();
   await expect(enableVerticalControlArea()).rejects.toThrow('different controls');
   await handle.destroy();
+});
+
+test('undefined optional controls preserve the same defaults as omitted settings', async () => {
+  const handle = await enableNativeUIShell({ controls: { tabs: undefined, segment: undefined, fab: undefined } });
+  try {
+    expect(await enableNativeUIShell()).toBe(handle);
+  } finally {
+    await handle.destroy();
+  }
+});
+
+test('iOS without a registered native plugin retains Web controls and transition defaults', async () => {
+  const platform = vi.spyOn(Capacitor, 'getPlatform').mockReturnValue('ios');
+  const available = vi.spyOn(Capacitor, 'isPluginAvailable').mockReturnValue(false);
+  try {
+    await expect(configureNativeTransition()).resolves.toEqual({ radius: 0 });
+    const shell = await enableNativeUIShell();
+    try {
+      expect(shell.getStatus()).toMatchObject({ state: 'web', reason: 'Native UI plugin is not registered' });
+      expect(available).toHaveBeenCalledWith('IonicNativeUIShell');
+    } finally {
+      await shell.destroy();
+    }
+  } finally {
+    available.mockRestore();
+    platform.mockRestore();
+  }
 });

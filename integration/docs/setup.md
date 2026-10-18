@@ -12,7 +12,7 @@ The theme/application owns Web layout; the plugin owns native presentation and s
 ### Install and configure
 
 ```sh
-npm install @rdlabo/ionic-theme-ios27 @rdlabo/capacitor-native-ui
+npm install @capacitor/core @rdlabo/ionic-theme-ios27 @rdlabo/capacitor-native-ui
 ```
 
 Load the theme styles and configure theme animations using [theme setup](../../packages/theme-ios27/docs/setup.md). Then enable the Shell once at application startup:
@@ -38,3 +38,7 @@ Follow [Native UI Shell](../../packages/capacitor-native-ui/docs/native-ui-shell
 Keep theme styles and ordinary theme API imports. Replace native imports using the [migration table](../../packages/capacitor-native-ui/docs/migration.md#2-replace-native-imports), declare the native package directly, and follow the [native project migration](../../packages/capacitor-native-ui/docs/migration.md#3-sync-the-native-project). Swift extensions retain `import IonicNativeUIShellPlugin`.
 
 Build and launch on iOS; check eligible native controls, navigation and canceled back gestures, light/dark appearance, and any app-local extensions. Also check browser and Android Web fallback where your app supports them. Unsupported controls remain Web-rendered, so retain the theme styling for that content.
+
+## Installation and activation are separate
+
+The theme depends on Native UI for its plugin-free transition/search integration. Capacitor remains optional for theme-only Web apps. With Capacitor’s default plugin discovery, native plugins must be direct application dependencies; the transitive theme dependency alone does not register the native plugin (`includePlugins` can explicitly override discovery). After declaring Native UI directly and syncing the native project, the application still explicitly calls `enableNativeUIShell()`. The theme’s router configuration never activates it.
