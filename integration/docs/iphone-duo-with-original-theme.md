@@ -17,7 +17,7 @@ Available in `1.2.0` as a **preview** feature. APIs and supported behavior may c
 This guide assumes an existing Ionic app with Ionic `>=8.8.1 <10` and Capacitor Core `>=8 <9`. Keep your existing Capacitor 8 installation. If your app uses another Capacitor major, migrate its Core, CLI, and platform packages together before following this guide. For a Web-only app without Capacitor, also install `@capacitor/core@^8`; the JavaScript entry point needs it even in Chrome.
 
 ```bash
-npm install @rdlabo/ionic-theme-ios27 @ionic-theme/capacitor-native-ui
+npm install @rdlabo/ionic-theme-ios27 @rdlabo/capacitor-native-ui
 ```
 
 Keep your existing theme imports. Add this to your global Sass file:
@@ -50,7 +50,7 @@ If you have not configured `navAnimation`, wrap Ionic's standard builders. Selec
 
 ```ts
 import { iosTransitionAnimation, mdTransitionAnimation, type AnimationBuilder } from '@ionic/core';
-import { withNativeUIShellTransition } from '@ionic-theme/capacitor-native-ui/vertical-bars';
+import { withNativeUIShellTransition } from '@rdlabo/capacitor-native-ui/vertical-bars';
 
 const defaultTransition: AnimationBuilder = (baseEl, opts) =>
   (opts.mode === 'ios' ? iosTransitionAnimation : mdTransitionAnimation)(baseEl, opts);
@@ -82,7 +82,7 @@ If your app uses another builder for `navAnimation`, wrap it:
 
 ```ts
 import type { AnimationBuilder } from '@ionic/core';
-import { withNativeUIShellTransition } from '@ionic-theme/capacitor-native-ui/vertical-bars';
+import { withNativeUIShellTransition } from '@rdlabo/capacitor-native-ui/vertical-bars';
 
 // Pass the animation builder your app already uses.
 const configureNavigation = (existingTransition: AnimationBuilder) => ({
@@ -99,7 +99,7 @@ The adapter keeps the builder's animation targets, including any horizontal back
 Call this once from your application startup after `ion-app` exists in the DOM:
 
 ```ts
-import { enableVerticalControlArea } from '@ionic-theme/capacitor-native-ui/vertical-bars';
+import { enableVerticalControlArea } from '@rdlabo/capacitor-native-ui/vertical-bars';
 
 const rail = await enableVerticalControlArea();
 ```
@@ -108,11 +108,11 @@ const rail = await enableVerticalControlArea();
 
 Use your existing Ionic click handlers, routing, and form associations. All button fills (`default`, `clear`, `solid`, and `outline`) use the same `icon-only` rule, including submit buttons. Actions without that slot remain horizontal. Add `.ios-theme-horizontal-only` to an `ion-buttons` group or individual `ion-button` to keep an action in the horizontal toolbar.
 
-When the application owner is disposed, call `await rail.destroy()` to restore the original controls and release the runtime. If you already use `enableNativeUIShell()`, keep that runtime and follow the [shared placement guide](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/iphone-duo#project-controls-into-the-rail).
+When the application owner is disposed, call `await rail.destroy()` to restore the original controls and release the runtime. If you already use `enableNativeUIShell()`, keep that runtime and follow the [shared placement guide](iphone-duo.md#project-controls-into-the-rail).
 
 ### Optional: choose native button appearance
 
-`buttonProjection` and local projection settings are available in `1.2.0`. See [Choose button appearance](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/vertical-bars#choose-button-appearance) for availability and migration details.
+`buttonProjection` and local projection settings are available in `1.2.0`. See [Choose button appearance](../../packages/capacitor-native-ui/docs/vertical-bars.md#choose-button-appearance) for availability and migration details.
 
 The new default is `system`: SwiftUI styles vertical buttons and tints their icons. If your existing theme should supply their fill and colors, use:
 
@@ -120,7 +120,7 @@ The new default is `system`: SwiftUI styles vertical buttons and tints their ico
 const rail = await enableVerticalControlArea({ buttonProjection: 'source', buttonDefaultFill: 'solid' });
 ```
 
-The `solid` default suits ordinary Ionic buttons. Buttons inside `ion-buttons` still default to clear; set `fill="solid"` explicitly to project their background. For one-off exceptions, use the [local projection settings](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/vertical-bars#override-individual-buttons-or-groups). These settings affect native vertical buttons only; Web clones keep their existing appearance.
+The `solid` default suits ordinary Ionic buttons. Buttons inside `ion-buttons` still default to clear; set `fill="solid"` explicitly to project their background. For one-off exceptions, use the [local projection settings](../../packages/capacitor-native-ui/docs/vertical-bars.md#override-individual-buttons-or-groups). These settings affect native vertical buttons only; Web clones keep their existing appearance.
 
 ### If the preview does not appear
 
@@ -128,7 +128,7 @@ The `solid` default suits ordinary Ionic buttons. Buttons inside `ion-buttons` s
 | --- | --- |
 | No space at the side | Load `vertical-bars.css` and put the class on `ion-app`. |
 | Space appears, but controls stay horizontal | Start `enableVerticalControlArea()` after mounting the app root. Use existing tabs or `slot="icon-only"` actions in a fixed header/footer toolbar. |
-| One action stays horizontal | Check for `slot="icon-only"` on the icon and a fixed toolbar outside scrolling content. Explicitly excluded controls and controls in centered modals stay horizontal; `fill` and `type="submit"` do not prevent movement. See [control requirements](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/vertical-bars#toolbar-actions). |
+| One action stays horizontal | Check for `slot="icon-only"` on the icon and a fixed toolbar outside scrolling content. Explicitly excluded controls and controls in centered modals stay horizontal; `fill` and `type="submit"` do not prevent movement. See [control requirements](../../packages/capacitor-native-ui/docs/vertical-bars.md#toolbar-actions). |
 
 ## Connect an iPhone Duo
 
@@ -139,9 +139,9 @@ npm install @erkamyaman/capacitor-foldable
 npx cap sync ios
 ```
 
-Use Capacitor 8.5 or later and build with Xcode 27.1 or newer for actual rail placement and hinge posture on iOS 27.1. Native UI Shell uses Swift Package Manager; existing CocoaPods apps can follow [Native UI Shell setup](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/native-ui-shell#enable-the-shell). Keep this package's `vertical-bars.css`; the device plugin's `ionic-tabs.css` is not needed with our rail projection.
+Use Capacitor 8.5 or later and build with Xcode 27.1 or newer for actual rail placement and hinge posture on iOS 27.1. Native UI Shell uses Swift Package Manager; existing CocoaPods apps can follow [Native UI Shell setup](../../packages/capacitor-native-ui/docs/native-ui-shell.md#enable-the-shell). Keep this package's `vertical-bars.css`; the device plugin's `ionic-tabs.css` is not needed with our rail projection.
 
-Replace the browser-only startup with the [device placement setup](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/iphone-duo#project-controls-into-the-rail). That setup sends initial values and `barPlacementChange` events to `setVerticalControlAreaPlacement({ edge: verticalBarEdge, nativeEdge: verticalBarEdge, inset })`, with subscriptions and cleanup kept in your application.
+Replace the browser-only startup with the [device placement setup](iphone-duo.md#project-controls-into-the-rail). That setup sends initial values and `barPlacementChange` events to `setVerticalControlAreaPlacement({ edge: verticalBarEdge, nativeEdge: verticalBarEdge, inset })`, with subscriptions and cleanup kept in your application.
 
 Pass both the requested and native edge with Foldable's measured inset. The placement API resolves RTL. A null edge restores the ordinary layout.
 
@@ -151,8 +151,8 @@ On supported iOS, controls in the rail use native SwiftUI rendering; your custom
 
 If your existing theme needs only a posture-driven split pane or a layout switch, do not start a projection runtime or add `.ios-theme-vertical-bars`. Pass `Foldable.getFoldState()` results and `foldStateChange` events to `applyFoldStateClasses(root, fold)`, removing the listener when finished. There is no separate start/stop monitoring call.
 
-See [Read the device layout](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/iphone-duo#read-the-device-layout) for the subscription example, null values, and monitoring lifetime. See [Adapt the split pane](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/iphone-duo#adapt-the-split-pane) for the opt-in width rules and half-open state.
+See [Read the device layout](iphone-duo.md#read-the-device-layout) for the subscription example, null values, and monitoring lifetime. See [Adapt the split pane](iphone-duo.md#adapt-the-split-pane) for the opt-in width rules and half-open state.
 
 ## Shared layout rules and API
 
-Safe-area handling, overlays, RTL, control eligibility, Web simulation, and the handle API are documented in [Vertical Bars](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/vertical-bars). Those rules apply to this standalone setup too.
+Safe-area handling, overlays, RTL, control eligibility, Web simulation, and the handle API are documented in [Vertical Bars](../../packages/capacitor-native-ui/docs/vertical-bars.md). Those rules apply to this standalone setup too.

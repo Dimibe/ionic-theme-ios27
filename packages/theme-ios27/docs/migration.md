@@ -1,39 +1,23 @@
 ---
-title: Migration
+title: Theme migration
 ---
 
-# Migration
+# Theme migration
 
 ## Native UI package separation
 
-The repository now separates the theme from `@ionic-theme/capacitor-native-ui`. The ordinary theme entry and CSS paths remain supported. The old `@rdlabo/ionic-theme-ios27/native` and `@rdlabo/ionic-theme-ios27/vertical-bars` entries are removed; replace them with `@ionic-theme/capacitor-native-ui` and `@ionic-theme/capacitor-native-ui/vertical-bars`, respectively. Capacitor apps using native controls must add `@ionic-theme/capacitor-native-ui` as a direct dependency and run `npx cap sync ios`; transitive dependencies are not discovered as plugins. See [workspace migration](monorepo.md#existing-applications).
+Theme styles and ordinary theme API imports remain supported. If you previously used native controls through this package, the `/native` and `/vertical-bars` entries have been removed:
 
-## Native UI Shell transition adapter
+| Previous import | Replacement |
+| --- | --- |
+| `@rdlabo/ionic-theme-ios27/native` | `@rdlabo/capacitor-native-ui` |
+| `@rdlabo/ionic-theme-ios27/vertical-bars` | `@rdlabo/capacitor-native-ui/vertical-bars` |
 
-Use `withNativeUIShellTransition()` to keep your existing Ionic navigation animation while coordinating Native UI Shell controls.
-
-- If you already import `iosTransitionAnimation` from `@rdlabo/ionic-theme-ios27`, keep the [package animation setup](./iphone-duo-with-original-theme.md#use-this-package%27s-ios-animation); no configuration change is needed. It now uses the shared adapter internally; do not add another wrapper.
-- If you use Ionic's default animation without a `navAnimation` option, follow [Keep Ionic's default animation](./iphone-duo-with-original-theme.md#keep-ionic%27s-default-animation). The example selects Ionic's standard iOS or MD builder from the transition mode.
-- If you use a custom navigation animation with Native UI Shell or the standalone Vertical Control Area, wrap your existing builder when configuring Ionic:
-
-```diff
-+ import { withNativeUIShellTransition } from '@ionic-theme/capacitor-native-ui/vertical-bars';
-
-  const ionicConfig = {
--   navAnimation: existingTransition,
-+   navAnimation: withNativeUIShellTransition(existingTransition),
-  };
-```
-
-Merge this option into your existing Ionic configuration before initialization. The adapter preserves the animation's effects, duration, and easing while coordinating native retirement, swipe progress, and cancellation. Keep your existing theme stylesheet imports and Native UI Shell or Vertical Control Area startup.
-
-Use the adapter only for navigation; leave modal and popover animations unchanged. Your builder must create a fresh `Animation` for each navigation because Ionic destroys it afterward. Keep lifecycle events for control registration and transitions without animation. If the custom builder animates a horizontal back button separately, exclude that effect while `.ios-theme-vertical-bars` is active.
-
-See [Connect your navigation animation](./iphone-duo-with-original-theme.md#3.-connect-your-navigation-animation) for the setup and supported scope.
+Add the native package as a direct application dependency, update imports, rebuild Web assets, and run `npx cap sync ios`. Follow the [Native UI migration guide](https://github.com/rdlabo-dev/ionic-theme-ios27/blob/main/packages/capacitor-native-ui/docs/migration.md) for the intermediate package rename and old Swift package references. Theme-only apps do not need native startup or plugin setup.
 
 ## From the iOS 26 theme
 
-For an app using `@rdlabo/ionic-theme-ios26`, the recommended migration keeps that package and adds `@rdlabo/ionic-theme-ios27`. The [README setup](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/readme#get-started) selects iOS 27 or iOS 26 styles by browser capability and leaves Ionic's default iOS appearance on older browsers.
+For an app using `@rdlabo/ionic-theme-ios26`, the recommended migration keeps that package and adds `@rdlabo/ionic-theme-ios27`. The [README setup](../README.md#get-started) selects iOS 27 or iOS 26 styles by browser capability and leaves Ionic's default iOS appearance on older browsers.
 
 ### 1. Add the new package
 
@@ -131,7 +115,7 @@ To switch entirely to iOS 27, remove the iOS 26 package and replace its styleshe
 + @use '@rdlabo/ionic-theme-ios27/src/styles/md-remove-ios-class-effect.scss';
 ```
 
-Change the animation import from `@rdlabo/ionic-theme-ios26` to `@rdlabo/ionic-theme-ios27`; the existing `isPlatform('ios')` configuration can stay. See the README's [iOS 27-only setup](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/readme#use-only-the-ios-27-theme). Unconditional imports apply the new styles on every browser using Ionic iOS mode.
+Change the animation import from `@rdlabo/ionic-theme-ios26` to `@rdlabo/ionic-theme-ios27`; the existing `isPlatform('ios')` configuration can stay. See the README's [iOS 27-only setup](../README.md#use-only-the-ios-27-theme). Unconditional imports apply the new styles on every browser using Ionic iOS mode.
 
 ## iOS 27 naming
 
@@ -141,7 +125,7 @@ Use the version-independent `--ios-theme-*` CSS variables. The corresponding `--
 
 For opting out of the theme, use the version-independent `ios-theme-disabled` class. The `ios26-disabled` class remains supported as a deprecated alias; migrate existing markup when convenient.
 
-See [Special markup and classes](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/special-markup) and [Default variables](../packages/theme-ios27/src/styles/default-variables.scss) for the current names.
+See [Special markup and classes](special-markup.md) and [Default variables](../src/styles/default-variables.scss) for the current names.
 
 Earlier migration notes are preserved in the [iOS 26 migration guide](https://docs.rdlabo.dev/projects/ionic-theme-ios26/docs/migration).
 

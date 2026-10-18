@@ -10,7 +10,7 @@ An extension projects your existing Web UI into a SwiftUI View. Keep both defini
 
 ```ts
 // src/native-ui/counter.ts
-import { defineNativeUI } from '@ionic-theme/capacitor-native-ui';
+import { defineNativeUI } from '@rdlabo/capacitor-native-ui';
 
 export const counter = defineNativeUI({
   name: 'app.counter',
@@ -30,7 +30,7 @@ The reader is synchronous and read-only. Return `null` when the source should st
 
 ## 2. Register a SwiftUI View in the app target
 
-Add a Swift file to the application's Xcode target. Import `IonicNativeUIShellPlugin`, the module supplied by `@ionic-theme/capacitor-native-ui`. Follow the [Native UI Shell setup](native-ui-shell.md#enable-the-shell) first.
+Add a Swift file to the application's Xcode target. Import `IonicNativeUIShellPlugin`, the module supplied by `@rdlabo/capacitor-native-ui`. Follow the [Native UI Shell setup](native-ui-shell.md#enable-the-shell) first.
 
 ```swift
 import SwiftUI
@@ -76,7 +76,7 @@ Call `registerAppNativeUI()` once from `application(_:didFinishLaunchingWithOpti
 ## 3. Enable with local definitions
 
 ```ts
-import { enableNativeUIShell } from '@ionic-theme/capacitor-native-ui';
+import { enableNativeUIShell } from '@rdlabo/capacitor-native-ui';
 import { counter } from './native-ui/counter';
 
 const shell = await enableNativeUIShell({ extensions: [counter] });
@@ -103,6 +103,6 @@ Element placement requires the source to fit fully inside the viewport and its a
 
 `try await actions.activate(name)` completes after the original Web element receives its click. It does **not** wait for application work launched by the click handler (network requests, navigation or modal presentation). Disabled, removed or stale actions reject; teardown, Swift task cancellation and bridge timeouts settle pending calls. The bridge acknowledgement is a Capacitor Promise method.
 
-The [demo reader](../demo/src/native-ui/counter.ts) and [demo SwiftUI View](../demo/ios/App/App/NativeUICounter.swift) show both placements using app-local files. Open the Native UI Shell demo page to compare native projection with its Web fallback.
+The [demo reader](https://github.com/rdlabo-dev/ionic-theme-ios27/blob/main/demo/src/native-ui/counter.ts) and [demo SwiftUI View](https://github.com/rdlabo-dev/ionic-theme-ios27/blob/main/demo/ios/App/App/NativeUICounter.swift) show both placements using app-local files. Open the Native UI Shell demo page to compare native projection with its Web fallback.
 
-For a complete application feature, see the [SwiftUI mini-player example](./native-mini-player.md): artwork, track metadata, playback controls and swipe-to-open, all defined in the demo application.
+For a complete application feature, see the [SwiftUI mini-player example](native-mini-player.md): artwork, track metadata, playback controls and swipe-to-open, all defined in the demo application.
