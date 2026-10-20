@@ -46,6 +46,8 @@ const shell = await enableNativeUIShell({
     popover: false,
     // Optional: placement: { edge: 'trailing', webHost: appOwnedHost },
   },
+  horizontal: true,
+  vertical: true,
   extensions: [],
 });
 ```
@@ -53,6 +55,7 @@ const shell = await enableNativeUIShell({
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | `ionic.auto` | `true` | `true` or omitted enables automatic Ionic projection; `false` disables it; an object selects kinds. Explicit `data-native-ui` sources and extensions are unaffected. |
+| `horizontal` / `vertical` | `true` | Automatic Ionic toolbar selection and grouping per layout: boolean or `{ buttons, button, backButton }`. Omitted fields are `true`; local attributes may override. See [toolbar settings](native-ui-shell.md#toolbar-selection-and-grouping). |
 | `debug` | `false` | Log source elements and Web fallback reasons to the developer console; no props or application exception messages. |
 | `root` | `document.body` | Connected source subtree. Controls outside it are not projected. |
 | `ionic.auto.buttons` | `true` | Automatic Ionic toolbar/back/menu controls. Explicitly marked buttons are independent. |
@@ -65,7 +68,7 @@ const shell = await enableNativeUIShell({
 | `verticalBars.buttonDefaultFill` | `'glass'` | `'glass'` or `'solid'` for source-style standalone Ionic buttons with no explicit fill. Explicit fills and the clear default inside `ion-buttons` take precedence. |
 | `verticalBars.popover` | `false` | Opt into Ionic popovers anchored to native rail buttons. Requires the Ionic entry and its optional peers; no effect on plain HTML. |
 | `verticalBars.placement` | omitted | Optional `{ edge: 'leading' \| 'trailing', webHost?: HTMLElement }`. Edge is a preference, not a device capability declaration. |
-| `extensions` | `[]` | Application-specific SwiftUI / Compose extensions, paired with native registrations. |
+| `extensions` | `[]` | **Experimental.** Application-specific SwiftUI / Compose extensions, paired with native registrations. API and behavior may change. |
 
 `webHost` is an optional, application-styled HTML fallback rail. It must be connected in the same document and outside `root`, with neither element containing the other. Use a limited `root`, such as your `<main>`, when supplying a sibling host; the default `document.body` cannot have such a host. Without a host, unavailable HTML rails leave their original controls visible. Ionic's existing rail layout uses its own fallback adapter.
 
