@@ -2,15 +2,13 @@
 title: Native UI (Preview)
 ---
 
-For application-specific SwiftUI or Compose content, see [experimental App-local Native UI extensions](native-ui-extensions.md).
-
 # Native UI (Preview)
 
 Native UI is a **preview**. The earlier Native UI Shell was bundled with theme versions 1.2.0 and 1.2.1; this guide describes the split package and its renamed API. See [migration](migration.md#native-ui-naming-changes). Its API and supported controls may change before stable status. Stable status is planned after the official release of Xcode 27.1.
 
 Native UI gives an Ionic app native navigation and action controls around its Web content. The optional Capacitor iOS plugin renders supported fixed Ionic controls with UIKit or SwiftUI and the system's Liquid Glass material. Page content, scrolling, application state and routing remain in Ionic's WebView.
 
-Use this page as the supported-control and API reference. For first-time installation and a working example, start with [Ionic setup](setup.md) or [HTML setup](framework-independent.md).
+Read [how projection works](../README.md#how-projection-works) for the shared DOM and native presentation model. Use this page as the supported-control and API reference. For first-time installation and a working example, start with [Ionic setup](setup.md) or [HTML setup](framework-independent.md).
 
 ## Enable Native UI
 
@@ -58,11 +56,11 @@ const shell = await enableNativeUI({
 
 Each layout accepts `boolean | ToolbarProjectionOptions`:
 
-| Value | Meaning |
-| --- | --- |
-| `true` or omitted | All three options default to `true`. |
-| `false` | All three options are `false`; local attributes may still opt in. |
-| Object | Set individual options; omitted fields default to `true`. |
+| Value             | Meaning                                                           |
+| ----------------- | ----------------------------------------------------------------- |
+| `true` or omitted | All three options default to `true`.                              |
+| `false`           | All three options are `false`; local attributes may still opt in. |
+| Object            | Set individual options; omitted fields default to `true`.         |
 
 For toolbar actions that automatically project only in vertical layout:
 
@@ -118,7 +116,7 @@ The table below describes the ordinary Native UI. Vertical Bars uses the separat
 
 | Ionic component                               | Supported appearance and placement                                                                        | Native rendering                                                      |
 | --------------------------------------------- | --------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| `ion-button`                                  | `fill="default"`, or clear inside an ungrouped `ion-buttons`, in a fixed header/footer toolbar                                        | Glass `UIButton`                                                      |
+| `ion-button`                                  | `fill="default"`, or clear inside an ungrouped `ion-buttons`, in a fixed header/footer toolbar            | Glass `UIButton`                                                      |
 | `ion-buttons`                                 | Fixed toolbar, two or more direct clear `ion-button` / `ion-menu-button` children sharing the theme glass | One `UIGlassEffect` surface with independent native buttons           |
 | `ion-back-button`                             | Standard icon and color in a fixed header/footer toolbar                                                  | Glass `UIButton`, using the resolved Ionic label/icon                 |
 | `ion-menu-button`                             | Fixed toolbar, inside the theme glass `ion-buttons`                                                       | Glass `UIButton`; original Ionic menu toggle                          |
@@ -204,15 +202,15 @@ Tab switches skip the Web/native crossfade so a retiring UIKit snapshot cannot l
 
 Standard Ionic overlays suspend ordinary native projection until dismissal. Vertical Bars use a separate policy:
 
-| Surface or condition | Vertical Bars behavior |
-| --- | --- |
-| Web toast, ordinary popover or legacy picker overlay | Keep the native rail visible, updated and interactive. |
-| Popover opened from a Vertical Bars button, rendered on Web | Return the rail to Web projection until dismissal, including native rejection or preparation failure. |
-| Alert, action sheet or loading | Restore Web rendering so the overlay and its dimming backdrop cover the controls correctly. |
-| Menu | Keep the existing native rail behavior. |
-| Full-width foreground modal | Project the modal's controls instead of the covered page's controls. |
-| Modal that cannot use Vertical Bars | Restore Web rendering. |
-| Explicit suspension, unavailable native layout, hidden document or unsupported keyboard/viewport geometry | Preserve the existing fallback behavior. |
+| Surface or condition                                                                                      | Vertical Bars behavior                                                                                |
+| --------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Web toast, ordinary popover or legacy picker overlay                                                      | Keep the native rail visible, updated and interactive.                                                |
+| Popover opened from a Vertical Bars button, rendered on Web                                               | Return the rail to Web projection until dismissal, including native rejection or preparation failure. |
+| Alert, action sheet or loading                                                                            | Restore Web rendering so the overlay and its dimming backdrop cover the controls correctly.           |
+| Menu                                                                                                      | Keep the existing native rail behavior.                                                               |
+| Full-width foreground modal                                                                               | Project the modal's controls instead of the covered page's controls.                                  |
+| Modal that cannot use Vertical Bars                                                                       | Restore Web rendering.                                                                                |
+| Explicit suspension, unavailable native layout, hidden document or unsupported keyboard/viewport geometry | Preserve the existing fallback behavior.                                                              |
 
 Native projection resumes only after every overlay requiring Web rendering closes. The opt-in native Vertical Bars popover described below keeps its own SwiftUI presentation and input handling. Unsupported searchable-tab configurations use the existing Web animation and share this ownership with Web glass gestures. CSS motion of supported containing surfaces also causes temporary Web rendering.
 
@@ -302,13 +300,13 @@ The generated reference below documents the handle returned by `enableNativeUI()
 
 <docgen-index>
 
-* [`enableVerticalControlArea()`](#enableverticalcontrolarea)
-* [`disableVerticalControlArea()`](#disableverticalcontrolarea)
-* [`markForCheck()`](#markforcheck)
-* [`getStatus()`](#getstatus)
-* [`suspend()`](#suspend)
-* [`destroy()`](#destroy)
-* [Interfaces](#interfaces)
+- [`enableVerticalControlArea()`](#enableverticalcontrolarea)
+- [`disableVerticalControlArea()`](#disableverticalcontrolarea)
+- [`markForCheck()`](#markforcheck)
+- [`getStatus()`](#getstatus)
+- [`suspend()`](#suspend)
+- [`destroy()`](#destroy)
+- [Interfaces](#interfaces)
 
 </docgen-index>
 
@@ -325,8 +323,7 @@ enableVerticalControlArea() => Promise<void>
 
 Enable rail projection when available, preserving other settings. Rejects after destroy.
 
---------------------
-
+---
 
 ### disableVerticalControlArea()
 
@@ -336,8 +333,7 @@ disableVerticalControlArea() => Promise<void>
 
 Restore rail sources to the Web without stopping ordinary native controls. Rejects after destroy.
 
---------------------
-
+---
 
 ### markForCheck()
 
@@ -347,8 +343,7 @@ markForCheck() => void
 
 Schedule a source recheck. Calls coalesce; unchanged snapshots are not sent. No-op after destroy or without a runtime.
 
---------------------
-
+---
 
 ### getStatus()
 
@@ -360,8 +355,7 @@ Returns the current Web/native projection state.
 
 **Returns:** <code><a href="#nativeuistatus">NativeUIStatus</a></code>
 
---------------------
-
+---
 
 ### suspend()
 
@@ -373,8 +367,7 @@ Restores projected controls to the Web until the returned lease is resumed.
 
 **Returns:** <code>Promise&lt;<a href="#nativeuisuspension">NativeUISuspension</a>&gt;</code>
 
---------------------
-
+---
 
 ### destroy()
 
@@ -384,11 +377,9 @@ destroy() => Promise<void>
 
 Stops synchronization, restores Web controls and releases native resources.
 
---------------------
-
+---
 
 ### Interfaces
-
 
 #### NativeUIStatus
 
@@ -398,7 +389,6 @@ Stops synchronization, restores Web controls and releases native resources.
 | **`projected`** | <code>number</code>                         |
 | **`updates`**   | <code>number</code>                         |
 | **`reason`**    | <code>string</code>                         |
-
 
 #### NativeUISuspension
 

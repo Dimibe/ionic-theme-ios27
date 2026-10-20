@@ -4,9 +4,15 @@ title: Vertical Bars (preview)
 
 # Vertical Bars (preview)
 
-Vertical Bars moves eligible Ionic navigation and actions into a side rail while keeping the original components as the source of labels, icons and behavior. It works with the iOS theme or an existing Ionic theme, independently of hinge posture and the full Native UI.
+Vertical Bars moves eligible Ionic controls or explicitly marked HTML buttons into a side rail while keeping the original elements as the source of labels, icons and behavior. It works with the iOS theme or an existing Ionic theme, independently of hinge posture and the full Native UI.
 
-Use this page for layout, control eligibility, native button appearance and the runtime API. For device events and split panes, see [iPhone Duo support](https://github.com/rdlabo-dev/ionic-theme-ios27/blob/main/packages/theme-ios27/docs/iphone-duo.md). For a step-by-step browser preview and native setup, start with [iPhone Duo with your existing theme](https://github.com/rdlabo-dev/ionic-theme-ios27/blob/main/packages/theme-ios27/docs/iphone-duo-with-original-theme.md).
+Choose your setup before using this reference:
+
+- **Ionic with a custom or default theme:** [Ionic rail setup](../../theme-ios27/docs/iphone-duo-with-original-theme.md#try-it-in-your-existing-ionic-app).
+- **No Ionic:** [HTML setup](framework-independent.md) and its [Web rail configuration](framework-independent.md#optional-web-rail). Use `/core` and your own layout; the Ionic setup below does not apply.
+- **Existing iOS 27 theme and Native UI:** [Connect device placement](../../theme-ios27/docs/iphone-duo.md#project-controls-into-the-rail) using your existing runtime.
+
+Return to this page for control eligibility, native button appearance and runtime options. Device events and Ionic split panes are covered in [iPhone Duo support](../../theme-ios27/docs/iphone-duo.md).
 
 Available in `1.2.0` as a **preview** feature. APIs and supported behavior may change.
 
@@ -22,7 +28,7 @@ npm install @rdlabo/capacitor-native-ui
 
 For Capacitor iOS, build your Web assets and run `npx cap sync ios`. Supply the Web layout through your app or theme as described below.
 
-After `ion-app` is mounted, start one runtime:
+For Ionic apps, start one runtime after `ion-app` is mounted:
 
 ```ts
 import { enableNativeUI } from '@rdlabo/capacitor-native-ui';
@@ -48,7 +54,6 @@ On supported iOS versions, adding `.ios-theme-vertical-bars` changes only contro
 
 The SwiftUI surface is clipped and hit-tested to the system rail. Web content remains visible and interactive outside that physical region. The runtime optimistically updates tab selection before forwarding the action to the original `ion-tab-button`, using the same event and stale-revision protection as the other native controls. Overlay layout follows the [optional theme rail layout](https://github.com/rdlabo-dev/ionic-theme-ios27/blob/main/packages/theme-ios27/docs/vertical-bars-layout.md#reserve-the-vertical-rail) when that stylesheet is used; custom layouts remain the application’s responsibility.
 
-
 ### Native popovers (Vertical Bars only)
 
 Native popover presentation is limited to popovers anchored to accepted native Vertical Bars `ion-button` controls. It is available with the standalone Vertical Bars runtime; the full Native UI is not required. Enable it explicitly when starting the runtime (`popover` defaults to `false`):
@@ -63,18 +68,17 @@ const rail = await enableNativeUI({
 
 Use an `ion-popover` whose `trigger` identifies the projected button, or pass that button's click event to `PopoverController.create({ event, ... })`. Ordinary toolbar and body popovers remain on the Web. If a rail-anchored popover falls back to Web rendering, the rail also returns to Web projection until dismissal. See [native popover behavior and limitations](native-ui.md#popovers-anchored-to-vertical-bars).
 
-
 ## Toolbar actions
 
 A standard `ion-back-button` can project from outside a fixed toolbar, including routed content or a persistent app shell. `ion-menu-button` and other toolbar actions require a fixed toolbar.
 
 By default, an `ion-button` moves into the rail when it contains an `ion-icon` or SVG with `slot="icon-only"`. The button must be in a fixed `ion-toolbar` directly inside `ion-header` or `ion-footer`, outside scrolling `ion-content`.
 
-| Icon markup | Placement |
-| --- | --- |
-| `slot="icon-only"` | Vertical rail |
+| Icon markup                              | Placement                   |
+| ---------------------------------------- | --------------------------- |
+| `slot="icon-only"`                       | Vertical rail               |
 | `slot="start"`, `slot="end"`, or no slot | Original horizontal toolbar |
-| No icon | Original horizontal toolbar |
+| No icon                                  | Original horizontal toolbar |
 
 ```html
 <ion-header>
@@ -105,20 +109,20 @@ This selects by layout, not device model, and leaves tabs, segments and FABs unc
 See [toolbar configuration](native-ui.md#toolbar-selection-and-grouping)
 for horizontal settings, boolean shorthands and defaults.
 
-| Option | Responsibility | What it does not do |
-| --- | --- | --- |
-| `button` | Automatically select eligible `ion-button` and `ion-menu-button` actions, whether inside or outside `ion-buttons`. | Does not select back buttons. |
-| `buttons` | Allow selected actions in `ion-buttons` to project as a group when the existing grouping rules allow it. | Does not select, enable or disable any child action. |
-| `backButton` | Automatically select eligible `ion-back-button` elements, independently of their parent group. | Does not group back buttons with other actions. |
+| Option       | Responsibility                                                                                                     | What it does not do                                  |
+| ------------ | ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------- |
+| `button`     | Automatically select eligible `ion-button` and `ion-menu-button` actions, whether inside or outside `ion-buttons`. | Does not select back buttons.                        |
+| `buttons`    | Allow selected actions in `ion-buttons` to project as a group when the existing grouping rules allow it.           | Does not select, enable or disable any child action. |
+| `backButton` | Automatically select eligible `ion-back-button` elements, independently of their parent group.                     | Does not group back buttons with other actions.      |
 
 For ordinary icon-only buttons in a group, with no local attributes:
 
-| `buttons` | `button` | Result |
-| --- | --- | --- |
-| `true` | `true` | Eligible buttons project together when the group qualifies. |
-| `false` | `true` | Eligible buttons project individually. |
-| `true` | `false` | No ordinary buttons project; grouping alone selects nothing. |
-| `false` | `false` | No ordinary buttons project. |
+| `buttons` | `button` | Result                                                       |
+| --------- | -------- | ------------------------------------------------------------ |
+| `true`    | `true`   | Eligible buttons project together when the group qualifies.  |
+| `false`   | `true`   | Eligible buttons project individually.                       |
+| `true`    | `false`  | No ordinary buttons project; grouping alone selects nothing. |
+| `false`   | `false`  | No ordinary buttons project.                                 |
 
 These results concern ordinary actions only. Back navigation, tabs and native
 search are independent. For example, to select only back navigation among toolbar
@@ -138,11 +142,11 @@ This does not disable tab projection or tab rail CSS.
 Use `data-vertical-bars="true|false"` on the element whose behavior you want to
 override. The attribute is **not inherited**.
 
-| Element | Meaning of its attribute | Fallback when absent or invalid |
-| --- | --- | --- |
-| `ion-button` / `ion-menu-button` | Select or exclude this action. Explicit `true` bypasses the icon-only selection rule. | `button` and the automatic shape rules |
-| `ion-buttons` | Enable or disable grouping of already-selected actions. Never selects children. | `buttons` and the existing grouping rules |
-| `ion-back-button` | Select or exclude this back button. | `backButton` and the supported back-button rules |
+| Element                          | Meaning of its attribute                                                              | Fallback when absent or invalid                  |
+| -------------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| `ion-button` / `ion-menu-button` | Select or exclude this action. Explicit `true` bypasses the icon-only selection rule. | `button` and the automatic shape rules           |
+| `ion-buttons`                    | Enable or disable grouping of already-selected actions. Never selects children.       | `buttons` and the existing grouping rules        |
+| `ion-back-button`                | Select or exclude this back button.                                                   | `backButton` and the supported back-button rules |
 
 Empty or unknown attribute values are ignored. To disable automatic action
 selection and explicitly select a text button:
@@ -220,10 +224,10 @@ button-then-group inheritance rules. Neither appearance value selects an action.
 
 For native vertical `ion-button` and `ion-menu-button` actions, choose who controls appearance:
 
-| `buttonProjection` | Appearance |
-| --- | --- |
-| `'system'` (default) | SwiftUI styles the buttons and tints their icons. Ionic fill, colors and borders are not applied. |
-| `'source'` | Projects the supported Ionic fill and computed colors described in [Source fill rules](#source-fill-rules). |
+| `buttonProjection`   | Appearance                                                                                                  |
+| -------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `'system'` (default) | SwiftUI styles the buttons and tints their icons. Ionic fill, colors and borders are not applied.           |
+| `'source'`           | Projects the supported Ionic fill and computed colors described in [Source fill rules](#source-fill-rules). |
 
 ```ts
 const rail = await enableNativeUI({ verticalBars: { only: true, buttonProjection: 'source' } });
@@ -237,8 +241,8 @@ const rail = await enableNativeUI({ verticalBars: { only: true, buttonProjection
 
 Use `data-projection` for local exceptions. Existing classes remain supported:
 
-| Attribute | Equivalent class |
-| --- | --- |
+| Attribute                  | Equivalent class              |
+| -------------------------- | ----------------------------- |
 | `data-projection="source"` | `ios-theme-projection-source` |
 | `data-projection="system"` | `ios-theme-projection-system` |
 
@@ -267,10 +271,10 @@ Only native vertical `ion-button` and `ion-menu-button` actions interpret these 
 
 For an `ion-button` resolved to `source`, fill is chosen separately from the projection mode:
 
-| Button | Effective fill |
-| --- | --- |
-| Explicit `fill="clear"`, `"solid"` or `"outline"` | The explicit value |
-| Omitted fill or `fill="default"` inside `ion-buttons` | `clear` |
+| Button                                                 | Effective fill      |
+| ------------------------------------------------------ | ------------------- |
+| Explicit `fill="clear"`, `"solid"` or `"outline"`      | The explicit value  |
+| Omitted fill or `fill="default"` inside `ion-buttons`  | `clear`             |
 | Omitted fill or `fill="default"` outside `ion-buttons` | `buttonDefaultFill` |
 
 `verticalBars.buttonDefaultFill` accepts `'solid'` or `'glass'`; omission is equivalent to `'glass'`. Use `'solid'` for Ionic's default button design, or `'glass'` for a glass design. It applies to every button resolved to `source`, including a local exception under a global `system` setting.
@@ -287,12 +291,12 @@ const rail = await enableNativeUI({ verticalBars: { only: true, buttonDefaultFil
 </ion-button>
 ```
 
-| Effective fill | Native appearance in `source` mode |
-| --- | --- |
-| `clear` | Icon color, without a glass background; CSS backgrounds are ignored |
-| `solid` | Computed background color tints a prominent glass button |
-| `outline` | Computed border color and width, with native glass |
-| `null` | Native glass with source icon colors |
+| Effective fill | Native appearance in `source` mode                                  |
+| -------------- | ------------------------------------------------------------------- |
+| `clear`        | Icon color, without a glass background; CSS backgrounds are ignored |
+| `solid`        | Computed background color tints a prominent glass button            |
+| `outline`      | Computed border color and width, with native glass                  |
+| `null`         | Native glass with source icon colors                                |
 
 Inside `ion-buttons`, explicitly set `fill="solid"` to project a background; `buttonDefaultFill: 'solid'` does not override the group's clear default. Native Liquid Glass tinting can differ from the CSS color, especially for translucent backgrounds. With the iOS theme, ordinary `ion-buttons` retain group projection; `ion-buttons.ios-theme-disabled` projects eligible buttons individually. Local projection settings do not change that grouping rule.
 
@@ -306,11 +310,11 @@ The generated reference below documents the handle returned by `enableVerticalCo
 
 <docgen-index>
 
-* [`setPlacement(...)`](#setplacement)
-* [`enableVerticalControlArea()`](#enableverticalcontrolarea)
-* [`disableVerticalControlArea()`](#disableverticalcontrolarea)
-* [Interfaces](#interfaces)
-* [Type Aliases](#type-aliases)
+- [`setPlacement(...)`](#setplacement)
+- [`enableVerticalControlArea()`](#enableverticalcontrolarea)
+- [`disableVerticalControlArea()`](#disableverticalcontrolarea)
+- [Interfaces](#interfaces)
+- [Type Aliases](#type-aliases)
 
 </docgen-index>
 
@@ -330,8 +334,7 @@ Legacy Web CSS adapter. Use the theme setVerticalBarsLayout helper instead.
 | **`placement`** | <code><a href="#verticalbaredge">VerticalBarEdge</a> \| <a href="#verticalbarplacement">VerticalBarPlacement</a></code> |
 | **`rtl`**       | <code>boolean</code>                                                                                                    |
 
---------------------
-
+---
 
 ### enableVerticalControlArea()
 
@@ -341,8 +344,7 @@ enableVerticalControlArea() => Promise<void>
 
 Enable rail projection when available, preserving other settings. Rejects after destroy.
 
---------------------
-
+---
 
 ### disableVerticalControlArea()
 
@@ -352,11 +354,9 @@ disableVerticalControlArea() => Promise<void>
 
 Restore rail sources to the Web without stopping ordinary native controls. Rejects after destroy.
 
---------------------
-
+---
 
 ### Interfaces
-
 
 #### VerticalBarPlacement
 
@@ -366,9 +366,7 @@ Restore rail sources to the Web without stopping ordinary native controls. Rejec
 | **`inset`**      | <code>number</code>                                         | Explicit rail width in CSS pixels; omitted to use the stylesheet's safe-area rules. |
 | **`nativeEdge`** | <code><a href="#verticalbaredge">VerticalBarEdge</a></code> | Ignored. Native availability is read from the plugin’s own device metrics.          |
 
-
 ### Type Aliases
-
 
 #### VerticalBarEdge
 

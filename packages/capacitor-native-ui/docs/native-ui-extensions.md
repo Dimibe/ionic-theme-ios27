@@ -8,6 +8,8 @@ title: App-local Native UI extensions (experimental)
 
 An extension projects your existing Web UI into a SwiftUI View on iOS or Jetpack Compose content on Android. Keep both definitions in your application: no npm package, separate library, or Capacitor plugin is required. The Web element remains the source of truth and the fallback UI.
 
+Extensions use the same [projection model](../README.md#how-projection-works) as built-in controls. Define the DOM data and actions to expose, then provide their native presentation.
+
 ## Before you start
 
 Start with an existing Capacitor 8 app and install the plugin if you have not already:
@@ -61,7 +63,8 @@ source.querySelector('button')!.addEventListener('click', () => {
   source.querySelector('[data-count-label]')!.textContent = `Count: ${count}`;
 });
 ```
- The shell observes DOM changes and sends the new props to the native content. State rendered into DOM attributes or text is observed automatically. For properties or external state read by the reader that do not mutate the DOM, call `shell.markForCheck()` after changing them.
+
+The shell observes DOM changes and sends the new props to the native content. State rendered into DOM attributes or text is observed automatically. For properties or external state read by the reader that do not mutate the DOM, call `shell.markForCheck()` after changing them.
 
 The reader is synchronous and read-only. Return `null` when the source should stay on the Web. Props are a JSON object (finite numbers, strings, booleans, null, arrays and objects), limited to 64K characters. Action names map to the source itself or its descendants; missing, hidden and disabled targets cannot be activated. Up to 30 actions are supported per source.
 
@@ -219,10 +222,10 @@ For source-specific fallback reasons, temporarily enable [`debug: true`](configu
 
 ## Content and placement are independent
 
-| `placement` | Behavior |
-| --- | --- |
+| `placement`            | Behavior                                                                              |
+| ---------------------- | ------------------------------------------------------------------------------------- |
 | Omitted or `'element'` | Hosts native content in the source element's Web frame on iOS 26+ or Android API 24+. |
-| `'tab-accessory'` | Attaches the View to a projected tab bar's system SwiftUI tab accessory on iOS 26.1+. |
+| `'tab-accessory'`      | Attaches the View to a projected tab bar's system SwiftUI tab accessory on iOS 26.1+. |
 
 For `tab-accessory`, place the source inside its owning `ion-tabs`. The shell resolves that tabs element's `ion-tab-bar`; applications do not pass native controller references. Currently only the **Vertical Bars SwiftUI tab host** supports this placement. Ordinary UIKit tab bars, missing native tabs, iOS 26.0, or multiple competing accessories keep the source on the Web. The shell does not approximate a system accessory with a floating overlay. Keep an equivalent Web layout (for example, a fixed footer); the source retains its layout space while hidden.
 
@@ -244,16 +247,16 @@ try NativeUI.register("app.counter") {
 
 The existing `(props, actions)` closure remains supported. Both forms use the same registration names and duplicate-name checks.
 
-| Context property | Meaning |
-| --- | --- |
-| `sourceID` | Opaque source identity for its current lifetime; not the HTML `id`. |
-| `sourceFrame` | DOM `getBoundingClientRect()` in CSS pixels relative to the Web viewport, including `x`, `y`, `width`, and `height`. |
-| `sourceFrameInWebView` | The source rectangle converted to UIKit points in the WebView's local coordinate system; not screen coordinates. |
-| `viewportWidth` | CSS viewport width used for that snapshot's coordinate conversion. |
-| `pointsPerCSSPixel` | UIKit points per CSS pixel; not device pixel density. |
-| `placement` | `.element` or `.tabAccessory`. |
-| `colorScheme` | `.light` or `.dark`, also applied to the SwiftUI environment. |
-| `layoutDirection` | `.leftToRight` or `.rightToLeft`, also applied to the SwiftUI environment. |
+| Context property       | Meaning                                                                                                              |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `sourceID`             | Opaque source identity for its current lifetime; not the HTML `id`.                                                  |
+| `sourceFrame`          | DOM `getBoundingClientRect()` in CSS pixels relative to the Web viewport, including `x`, `y`, `width`, and `height`. |
+| `sourceFrameInWebView` | The source rectangle converted to UIKit points in the WebView's local coordinate system; not screen coordinates.     |
+| `viewportWidth`        | CSS viewport width used for that snapshot's coordinate conversion.                                                   |
+| `pointsPerCSSPixel`    | UIKit points per CSS pixel; not device pixel density.                                                                |
+| `placement`            | `.element` or `.tabAccessory`.                                                                                       |
+| `colorScheme`          | `.light` or `.dark`, also applied to the SwiftUI environment.                                                        |
+| `layoutDirection`      | `.leftToRight` or `.rightToLeft`, also applied to the SwiftUI environment.                                           |
 
 The closure receives a fresh context when the shell applies an updated snapshot, including source movement, resizing, and appearance changes. Use the current context rather than caching its geometry in `@State`. Updates cross the Web/native bridge; they are not a synchronous DOM measurement from Swift.
 
@@ -270,16 +273,16 @@ Do not apply `sourceFrame.x` or `y` as another SwiftUI offset: the shell already
 
 ## Use the shared projection capabilities
 
-| Capability | How an extension uses it |
-| --- | --- |
-| Position and size | Automatic host placement plus `NativeUIContext`; actual local bounds through `GeometryReader`. |
-| Dark mode and RTL | `context` or SwiftUI `@Environment(\.colorScheme)` and `@Environment(\.layoutDirection)`. |
-| Reduce Motion and accessibility | SwiftUI environment values such as `@Environment(\.accessibilityReduceMotion)` and native accessibility modifiers. Give custom controls accessible names. |
-| DOM-backed application state | Return JSON `props` from `read(element)`; DOM changes trigger synchronization. For changes without a DOM mutation, call `shell.markForCheck()`. |
-| Enabled/visible action targets | `actions.availableNames` or `actions.isAvailable("increment")`; unavailable DOM targets are omitted. |
-| Invoke the original Web action | `try await actions.activate("increment")`; completion and failure follow the contract below. |
-| Temporary Web fallback and teardown | Managed automatically for unsupported content, overlays, navigation suspension, and source removal. |
-| Application-controlled suspension | Use the shell handle's `suspend()`, the returned token's `resume()`, and `destroy()` from JavaScript. |
+| Capability                          | How an extension uses it                                                                                                                                  |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Position and size                   | Automatic host placement plus `NativeUIContext`; actual local bounds through `GeometryReader`.                                                            |
+| Dark mode and RTL                   | `context` or SwiftUI `@Environment(\.colorScheme)` and `@Environment(\.layoutDirection)`.                                                                 |
+| Reduce Motion and accessibility     | SwiftUI environment values such as `@Environment(\.accessibilityReduceMotion)` and native accessibility modifiers. Give custom controls accessible names. |
+| DOM-backed application state        | Return JSON `props` from `read(element)`; DOM changes trigger synchronization. For changes without a DOM mutation, call `shell.markForCheck()`.           |
+| Enabled/visible action targets      | `actions.availableNames` or `actions.isAvailable("increment")`; unavailable DOM targets are omitted.                                                      |
+| Invoke the original Web action      | `try await actions.activate("increment")`; completion and failure follow the contract below.                                                              |
+| Temporary Web fallback and teardown | Managed automatically for unsupported content, overlays, navigation suspension, and source removal.                                                       |
+| Application-controlled suspension   | Use the shell handle's `suspend()`, the returned token's `resume()`, and `destroy()` from JavaScript.                                                     |
 
 For example, disable a native button when its original action is unavailable:
 
@@ -360,4 +363,6 @@ Element placement requires the source to fit fully inside the viewport and its a
 
 The [demo reader](https://github.com/rdlabo-dev/ionic-theme-ios27/blob/main/demo/src/native-ui/counter.ts) and [demo SwiftUI View](https://github.com/rdlabo-dev/ionic-theme-ios27/blob/main/demo/ios/App/App/NativeUICounter.swift) show both placements using app-local files. Open the Native UI demo page to compare native projection with its Web fallback.
 
-For a complete application feature, see the [SwiftUI mini-player example](native-mini-player.md): artwork, track metadata, playback controls and swipe-to-open, all defined in the demo application.
+## Example: mini-player
+
+The demo mini-player shows the same pattern with track metadata and playback actions: a [DOM reader and Web fallback](https://github.com/rdlabo-dev/ionic-theme-ios27/blob/main/demo/src/native-ui/mini-player.ts) paired with an [app-local SwiftUI View](https://github.com/rdlabo-dev/ionic-theme-ios27/blob/main/demo/ios/App/App/NativeMiniPlayer.swift). The Web app owns playback state and modal presentation; native `open` and `toggle` actions activate its original buttons. This is a UI example, not an audio engine. Adapt the files after completing the extension setup above.
