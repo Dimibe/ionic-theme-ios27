@@ -1,7 +1,5 @@
 # Native UI without Ionic
 
-> This guide targets the upcoming package split. Until the first native package release, use the [candidate archive installation](../README.md#try-the-unreleased-packages) in place of registry install commands.
-
 Add native buttons to an existing Web app without Ionic or theme CSS. Keep labels, state, and click handlers on ordinary HTML elements. Standard buttons require no custom Swift registration.
 
 Use a Capacitor 8 app with an iOS project, Xcode 26+, and an iOS 26+ device or simulator. Browsers and Android retain Web controls. For custom Android native content, use [Kotlin/Compose extensions](native-ui-extensions.md#2b-register-compose-content-on-android).

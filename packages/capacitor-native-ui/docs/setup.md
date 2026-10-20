@@ -1,7 +1,5 @@
 # Set up Native UI in an Ionic app
 
-> This guide targets the upcoming package split. Until the first native package release, use the [candidate archive installation](../README.md#try-the-unreleased-packages) in place of registry install commands.
-
 Keep your existing Web appearance and render supported Ionic controls natively on iOS. This guide does not require iOS theme stylesheets.
 
 Already using the iOS 27 theme? Follow [Add Native UI to your theme](https://github.com/rdlabo-dev/ionic-theme-ios27/blob/main/packages/theme-ios27/docs/add-native-ui.md). Without Ionic, follow the [HTML setup](framework-independent.md) instead.
@@ -122,10 +120,10 @@ These hooks manage the app's lifetime, not individual page transitions. Configur
 
 ## 3. Coordinate navigation
 
-For optional Ionic animation coordination, install `@rdlabo/ionic-theme-ios27` and configure navigation before Ionic initializes. Its adapter can retain Ionic's default transitions without loading theme CSS:
+For optional Ionic animation coordination, install `@rdlabo/ionic-theme-ios27` and update Native UI together so their versions match. Configure navigation before Ionic initializes. Its adapter can retain Ionic's default transitions without loading theme CSS:
 
 ```sh
-npm install @rdlabo/ionic-theme-ios27
+npm install @rdlabo/ionic-theme-ios27 @rdlabo/capacitor-native-ui
 ```
 
 ```ts
