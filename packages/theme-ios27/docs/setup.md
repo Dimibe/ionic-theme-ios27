@@ -24,7 +24,17 @@ Add these imports to your global stylesheet after Ionic's base styles. Replace a
 @import '@rdlabo/ionic-theme-ios27/dist/css/ionic-theme-ios27-dark-system.css';
 ```
 
-For a manual dark-mode toggle, use Ionic's `dark.class.css` and the theme's `ionic-theme-ios27-dark-class.css`, then toggle `ion-palette-dark` on the document root. For always-dark styling, use `dark.always.css` and `ionic-theme-ios27-dark-always.css`. Choose one matching pair.
+### Choose one dark-mode pair
+
+Use one matching Ionic palette and theme variant. Paths below are relative to `@ionic/core/css/palettes/` and `@rdlabo/ionic-theme-ios27/dist/css/` respectively.
+
+| Mode                   | Ionic palette     | Theme stylesheet                    | Activation                                      |
+| ---------------------- | ----------------- | ----------------------------------- | ----------------------------------------------- |
+| System (example above) | `dark.system.css` | `ionic-theme-ios27-dark-system.css` | System appearance.                              |
+| Manual                 | `dark.class.css`  | `ionic-theme-ios27-dark-class.css`  | Toggle `ion-palette-dark` on the document root. |
+| Always dark            | `dark.always.css` | `ionic-theme-ios27-dark-always.css` | Always active.                                  |
+
+If you also enable Native UI, these styles provide its light/dark appearance marker. Keep the Ionic palette and theme variant paired so Web and native controls agree. See [native appearance inheritance](../../capacitor-native-ui/docs/appearance.md) for the resolution order and shared rail behavior.
 
 ## 3. Configure Ionic animations
 

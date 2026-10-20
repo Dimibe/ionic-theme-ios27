@@ -30,12 +30,25 @@ The `/core` entry requires `@capacitor/core` but no Ionic dependencies. If this 
 <aside id="rail" aria-label="Navigation"></aside>
 ```
 
-- `data-native-ui="button"` opts into a standard action button.
-- `data-native-ui="back-button"` opts into a standard back button. Its original click handler owns navigation; the plugin never calls `history.back()`.
-- `data-native-ui-placement="rail"` requests Vertical Bars. Without it, the source rectangle is used. `element` explicitly preserves that rectangle.
-- Sources must be `<button>`, explicitly marked `ion-button`, or custom elements exposing `role="button"` and click behavior. Unmarked HTML is never inferred to be a control.
+| Attribute                  | Value               | Effect                                                                                                             |
+| -------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `data-native-ui`           | `button`            | Project a standard action button.                                                                                  |
+| `data-native-ui`           | `back-button`       | Project a standard back button. The source click handler owns navigation; the plugin never calls `history.back()`. |
+| `data-native-ui`           | `disabled`          | Exclude the element and its subtree from projection.                                                               |
+| `data-native-ui-placement` | `element` (default) | Use the source element's rectangle.                                                                                |
+| `data-native-ui-placement` | `rail`              | Request Vertical Bars; use the optional Web rail host when native rail presentation is unavailable.                |
 
-Keep the accessible name, supported static SVG, disabled state and application handlers on the source. Names resolve from `aria-labelledby`, `aria-label`, then text. Native `disabled`, a disabled fieldset and `aria-disabled="true"` are respected. Hidden, removed, excluded or out-of-scope sources are retired and stale actions are rejected. Use `data-native-ui="disabled"` to exclude a subtree.
+Apply `button` and `back-button` to `<button>`, explicitly marked `ion-button`, or elements exposing `role="button"` and click behavior. Unmarked HTML is never inferred to be a control. `data-native-ui-placement` chooses placement for a declared source; it does not opt an unmarked HTML element into projection.
+
+Keep the control's data and behavior on its source:
+
+| Source property      | Projection behavior                                                                        |
+| -------------------- | ------------------------------------------------------------------------------------------ |
+| Accessible name      | Resolves from `aria-labelledby`, then `aria-label`, then text.                             |
+| Artwork              | Uses supported static SVG.                                                                 |
+| Disabled state       | Respects native `disabled`, a disabled fieldset, and `aria-disabled="true"`.               |
+| Visibility and scope | Hidden, removed, excluded or out-of-scope sources are retired; stale actions are rejected. |
+| Application handlers | Remain on the original element.                                                            |
 
 Native and Web-proxy actions click the original element. An ordinary `<button type="submit">` therefore keeps its original form behavior. Use `type="button"` for actions that must not submit. The native bridge does not preserve browser user-activation privileges for APIs such as popup opening.
 
@@ -50,6 +63,10 @@ const shell = await enableNativeUI({
 ```
 
 Call once after the source root exists. Keep the handle and call `await shell.destroy()` when that root is disposed. The plugin does not add page padding or safe-area rules; retain your application's CSS. For Angular, React, or Vue, use the [app-root lifecycle examples](setup.md#place-startup-in-your-frameworks-app-root) with the `/core` import. For animated navigation, use [suspension through completion and cancellation](setup.md#navigation-without-the-theme).
+
+### Match the HTML theme
+
+For a custom HTML theme, declare `color-scheme: light` or `color-scheme: dark` in the same CSS that selects your Web palette. Background colors alone do not select native appearance. See [Light and dark appearance](appearance.md) for a manual-toggle example, precedence when Ionic/theme variables are present, and shared rail behavior.
 
 ## 4. Build and run on iOS
 
@@ -82,6 +99,8 @@ The plugin uses device-reported rail availability and resolves leading/trailing 
 Explicit markup chooses placement: Back goes to the rail and Add keeps native element placement. To project only Back, remove `data-native-ui="button"` from Add. `controls` does not disable explicit source declarations. To change rail use later, call `await shell.disableVerticalControlArea()` or `await shell.enableVerticalControlArea()`. Disabling restores original rail controls and removes Web rail proxies without destroying ordinary native projection.
 
 Currently the HTML adapter supports buttons and back buttons. Arbitrary HTML tabs, segments, searchbars and FAB structures are not translated. Ionic adapters continue to support their existing controls. Custom element extensions work with the same scoped root; the existing `tab-accessory` extension placement still requires an Ionic tab-bar owner.
+
+For device-driven spacing and placement, see [Use with Capacitor Foldable](vertical-bars.md#use-with-capacitor-foldable). Read its initial placement and subscribe to changes, applying the edge and inset to your own CSS; the theme package is not required.
 
 ## Example
 

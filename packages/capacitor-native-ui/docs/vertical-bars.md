@@ -1,8 +1,8 @@
 ---
-title: Vertical Bars (preview)
+title: Vertical Bars
 ---
 
-# Vertical Bars (preview)
+# Vertical Bars
 
 Vertical Bars moves eligible Ionic controls or explicitly marked HTML buttons into a side rail while keeping the original elements as the source of labels, icons and behavior. It works with the iOS theme or an existing Ionic theme, independently of hinge posture and the full Native UI.
 
@@ -12,9 +12,9 @@ Choose your setup before using this reference:
 - **No Ionic:** [HTML setup](framework-independent.md) and its [Web rail configuration](framework-independent.md#optional-web-rail). Use `/core` and your own layout; the Ionic setup below does not apply.
 - **Existing iOS 27 theme and Native UI:** [Connect device placement](../../theme-ios27/docs/iphone-duo.md#project-controls-into-the-rail) using your existing runtime.
 
-Return to this page for control eligibility, native button appearance and runtime options. Device events and Ionic split panes are covered in [iPhone Duo support](../../theme-ios27/docs/iphone-duo.md).
+This page covers device-plugin integration, control eligibility, native appearance and runtime options. For posture-driven Ionic split panes, see [iPhone Duo support](../../theme-ios27/docs/iphone-duo.md).
 
-Available as a **preview** feature. APIs and supported behavior may change.
+Vertical Bars and iPhone Duo support are stable starting with version 2.0.0.
 
 See [shared configuration](configuration.md) for all defaults and live `rail.enableVerticalControlArea()` / `rail.disableVerticalControlArea()` methods. [Plain HTML controls](framework-independent.md) use the same native rail renderers.
 
@@ -36,7 +36,7 @@ import { enableNativeUI } from '@rdlabo/capacitor-native-ui';
 const rail = await enableNativeUI({ controls: 'verticalOnly' });
 ```
 
-Configure your Web rail layout and [apply device placement](https://github.com/rdlabo-dev/ionic-theme-ios27/blob/main/packages/theme-ios27/docs/iphone-duo.md#project-controls-into-the-rail) for an iPhone Duo. The application owns placement and cleanup: call `await rail.destroy()` when its owner is disposed. If you already use `enableNativeUI()`, keep that runtime; it includes Vertical Bars. Do not start both.
+Configure your Web rail layout and [apply device placement](#use-with-capacitor-foldable) for an iPhone Duo. The application owns placement and cleanup: call `await rail.destroy()` when its owner is disposed. If you already use `enableNativeUI()`, keep that runtime; it includes Vertical Bars. Do not start both.
 
 The `/vertical-bars` entry point requires `@capacitor/core`, including in browser builds. Using only the theme’s rail CSS needs no native runtime. For native setup and navigation transitions, follow the [existing-theme guide](https://github.com/rdlabo-dev/ionic-theme-ios27/blob/main/packages/theme-ios27/docs/iphone-duo-with-original-theme.md).
 
@@ -47,6 +47,53 @@ On supported Capacitor iOS, eligible controls use native SwiftUI rendering. Web,
 The application or theme owns Web spacing, rail positioning, and fallback styles. The plugin reads the supplied Ionic layout and placement; it does not reserve Web content space on its own. With the iOS27 theme, use its `setVerticalBarsLayout({ edge, inset })` helper. Native-only applications use their own CSS; no theme helper is required. Native availability comes from device metrics, independently of Web layout.
 
 The [theme's optional rail stylesheet](https://github.com/rdlabo-dev/ionic-theme-ios27/blob/main/packages/theme-ios27/docs/vertical-bars-layout.md) supplies one ready-made layout. Its classes and CSS variables are not a requirement to install the theme package: applications may provide equivalent layout themselves. The runtime currently uses the `ios-theme-vertical-bars` class on `ion-app` to identify the rail layout, regardless of who supplies its styles.
+
+## Use with Capacitor Foldable
+
+Use [`@erkamyaman/capacitor-foldable`](https://github.com/erkamyaman/capacitor-foldable) when your Web layout needs to follow the device's bar placement or hinge posture. Native UI does not subscribe to Foldable automatically.
+
+| Owner                | Responsibility                                                                              |
+| -------------------- | ------------------------------------------------------------------------------------------- |
+| Foldable             | Report initial device state and subsequent placement/posture changes.                       |
+| Application or theme | Reserve Web space and choose the layout using the reported logical edge and measured inset. |
+| Native UI            | Check native rail availability independently and project eligible source controls.          |
+
+```sh
+npm install @erkamyaman/capacitor-foldable
+npx cap sync ios
+```
+
+### With the theme's Ionic rail layout
+
+After loading [the rail stylesheet](../../theme-ios27/docs/vertical-bars-layout.md) and mounting `ion-app`, start the runtime once and connect device placement:
+
+```ts
+import { Foldable, type BarPlacement } from '@erkamyaman/capacitor-foldable';
+import { setVerticalBarsLayout } from '@rdlabo/ionic-theme-ios27';
+import { enableNativeUI } from '@rdlabo/capacitor-native-ui';
+
+const rail = await enableNativeUI({ controls: 'verticalOnly' });
+const applyPlacement = ({ verticalBarEdge, inset }: BarPlacement) => setVerticalBarsLayout({ edge: verticalBarEdge, inset });
+const listener = await Foldable.addListener('barPlacementChange', applyPlacement);
+applyPlacement(await Foldable.getBarPlacement());
+```
+
+If a runtime is already active, keep it and add only the placement subscription. `setVerticalBarsLayout` resolves logical edges for RTL; a null edge restores the ordinary Web layout. Use the measured inset instead of a fixed width. Keep the theme's rail stylesheet; Foldable's `ionic-tabs.css` is not needed for this integration.
+
+When the application owner is disposed, remove its subscription and destroy the runtime it owns:
+
+```ts
+await listener.remove();
+await rail.destroy();
+```
+
+### With application-owned CSS or without Ionic
+
+Use the same `getBarPlacement()` / `barPlacementChange` subscription, but apply the edge and inset to your own CSS instead of calling `setVerticalBarsLayout`. A null edge means your layout should restore its ordinary spacing. For Ionic, retain the rail layout classes described above; for plain HTML, use the `/core` entry and [source placement and an optional Web rail host](framework-independent.md#optional-web-rail). Neither Foldable nor Native UI supplies the application's CSS.
+
+Keep Web layout updates separate from native availability: do not pass Foldable's edge through the deprecated `nativeEdge` option. Native UI reads that capability itself. A browser layout preview does not require Foldable.
+
+For hinge-driven content layout, read `getFoldState()` and subscribe to `foldStateChange` separately. Hinge posture does not select controls or enable the rail; see the theme's [posture subscription and split-pane example](../../theme-ios27/docs/iphone-duo.md#read-the-device-layout).
 
 ## Native rendering
 
@@ -135,11 +182,14 @@ This does not disable tab projection or tab rail CSS.
 Use `data-vertical-bars="true|false"` on the element whose behavior you want to
 override. The attribute is **not inherited**.
 
-| Element                          | Meaning of its attribute                                                              | Fallback when absent or invalid                  |
-| -------------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| `ion-button` / `ion-menu-button` | Select or exclude this action. Explicit `true` bypasses the icon-only selection rule. | `button` and the automatic shape rules           |
-| `ion-buttons`                    | Enable or disable grouping of already-selected actions. Never selects children.       | `buttonGroup` and the existing grouping rules    |
-| `ion-back-button`                | Select or exclude this back button.                                                   | `backButton` and the supported back-button rules |
+| Element                          | `data-vertical-bars="true"`                                                    | `data-vertical-bars="false"`                                    | Default when absent or invalid                     |
+| -------------------------------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------- | -------------------------------------------------- |
+| `ion-button` / `ion-menu-button` | Select the action, including supported text actions without an icon-only slot. | Exclude the action from the rail.                               | `controls.button` and automatic shape rules.       |
+| `ion-buttons`                    | Allow grouping of already-selected actions.                                    | Project selected actions individually.                          | `controls.buttonGroup` and grouping eligibility.   |
+| `ion-back-button`                | Select back navigation independently of its group.                             | Exclude this back button from the rail.                         | `controls.backButton` and back-button eligibility. |
+| `ion-tab-bar`                    | Select eligible rail tabs and their native search presentation.                | Disable native rail tab selection; existing Web layout remains. | `controls.tabs` and tab-bar eligibility.           |
+
+The group's attribute never selects or excludes its children. All opt-ins remain subject to structural exclusions and rail availability.
 
 Empty or unknown attribute values are ignored. To disable automatic action
 selection and explicitly select a text button:
@@ -206,9 +256,17 @@ remain opt-outs; those are distinct from the grouping setting.
 
 ### Placement versus appearance
 
-`data-vertical-bars` controls selection or grouping as described above.
-`data-projection="source|system"` controls native appearance and follows its own
-button-then-group inheritance rules. Neither appearance value selects an action.
+| Setting                    | Values                              | Responsibility                                              | Applies to                                                                                                         |
+| -------------------------- | ----------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `data-native-ui`           | `button`, `back-button`, `disabled` | Declare an explicit source or exclude a subtree.            | [Explicit source elements](framework-independent.md#2-mark-source-controls); `disabled` also applies to ancestors. |
+| `data-native-ui-placement` | `element`, `rail`                   | Choose the original element position or request the rail.   | Explicit sources; `element` also keeps automatic Ionic controls at their original position.                        |
+| `data-vertical-bars`       | `true`, `false`                     | Override rail selection or grouping defaults.               | Ionic actions and groups listed above.                                                                             |
+| `data-horizontal-bars`     | `true`, `false`                     | Override ordinary-placement selection or grouping defaults. | [Ordinary Ionic controls](native-ui.md#toolbar-selection-and-grouping).                                            |
+| `data-projection`          | `system`, `source`                  | Choose native appearance without selecting an action.       | Native vertical `ion-button` and `ion-menu-button`; inherited from the nearest `ion-buttons`.                      |
+
+Selection attributes are not inherited. Appearance follows the button-then-group priority described below. An attribute never makes unsupported markup or a missing native rail available.
+
+The rail shares one light/dark appearance across projected controls. See [Shared Vertical Bars appearance](appearance.md#shared-vertical-bars-appearance) when configuring your Web theme.
 
 ### Choose button appearance
 

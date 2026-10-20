@@ -24,6 +24,8 @@ Without Ionic, import the same API from `@rdlabo/capacitor-native-ui/core`. That
 
 Web rails require the Ionic rail layout or an application-owned HTML `webHost`. Settings never create a device capability.
 
+For HTML-derived light/dark behavior, see [Light and dark appearance](appearance.md). Appearance is configured in Web CSS, not through a startup option.
+
 ## All settings
 
 `controls` chooses selection and grouping defaults. `verticalBars` configures the rail. `ionic` configures Ionic discovery and appearance. Omitted fields default to `true` in `controls`, including partial objects.
@@ -94,7 +96,15 @@ Local `data-horizontal-bars="true|false"` and `data-vertical-bars="true|false"` 
 | `ionic.verticalBars.popover`           | `false`         | Opt into Ionic popovers anchored to native rail buttons. Requires the Ionic entry and its optional peers.                                                   |
 | `debug`                                | `false`         | Log source elements and fallback reasons to the developer console.                                                                                          |
 
-`webHost` is an optional, application-styled HTML fallback rail. It must be connected in the same document and outside `root`, with neither element containing the other. Use a limited `root`, such as your `<main>`, when supplying a sibling host; the default `document.body` cannot have such a host. Without a host, unavailable HTML rails leave their original controls visible. Ionic's existing rail layout uses its own fallback adapter.
+### HTML fallback rail host
+
+`webHost` is an optional, application-styled HTML fallback rail. Its requirements are:
+
+- Connected to the same document as `root`.
+- Outside `root`; neither element may contain the other.
+- Styled and positioned by the application, including any reserved content spacing.
+
+Use a limited `root`, such as your `<main>`, with a sibling host; the default `document.body` cannot have such a host. Without a host, unavailable HTML rails leave original controls visible. Ionic's existing rail layout uses its own fallback adapter.
 
 HTML currently supports buttons and back buttons. Tab, segment and FAB readers remain Ionic adapters; enabling those settings does not infer equivalent structures from arbitrary HTML.
 
