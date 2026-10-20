@@ -1,0 +1,52 @@
+name: Clean up closed PR reports
+'on':
+  pull_request:
+    branches:
+      - main
+      - ios26
+    types:
+      - closed
+permissions:
+  contents: read
+jobs:
+  cleanup-report:
+    concurrency:
+      group: playwright-gh-pages
+      cancel-in-progress: false
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - name: Checkout gh-pages
+        uses: actions/checkout@v5
+        with:
+          ref: gh-pages
+          path: gh-pages
+      - name: Prune closed PR reports
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('node:fs');
+            const openPulls = await github.paginate(github.rest.pulls.list, {
+              ...context.repo, state: 'open', per_page: 100,
+            });
+            const openNumbers = new Set(openPulls.map(pull => String(pull.number)));
+            for (const entry of fs.readdirSync('gh-pages', { withFileTypes: true })) {
+              const match = /^pr-(\d+)$/.exec(entry.name);
+              if (entry.isDirectory() && match && !openNumbers.has(match[1])) {
+                fs.rmSync(`gh-pages/${entry.name}`, { recursive: true });
+                core.info(`Removed closed PR report: ${entry.name}`);
+              }
+            }
+      - name: Deploy reports and deletions to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./gh-pages
+          keep_files: false
+          force_orphan: true
+          user_name: github-actions[bot]
+          user_email: github-actions[bot]@users.noreply.github.com
+          commit_message: Refresh open PR test reports
