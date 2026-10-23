@@ -22,6 +22,8 @@ export const read = (element: HTMLElement, id: Identify): Candidate | undefined 
 
   const candidate = createCandidate(element, tag, id);
   const style = getComputedStyle(element);
+  // Palette contrast colors assume a colored Web background; keep native tint there.
+  const projectSelectionColor = !element.classList.contains('ion-color');
   const rtl = style.direction === 'rtl';
   const position = ['start', 'center', 'end'].find((value) => element.classList.contains(`tab-bar-position-${value}`));
   candidate.control.tabBarAnchor = {
@@ -32,6 +34,9 @@ export const read = (element: HTMLElement, id: Identify): Candidate | undefined 
   for (const child of children) {
     const item = appendItem(candidate, child, id);
     if (!item) return;
+    // Read Ionic's applied selection color, after CSS inheritance and theme
+    // resolution, rather than requiring a particular palette token or format.
+    if (projectSelectionColor && item.selected && /^rgba?\(/.test(item.color)) candidate.control.tabTint = item.color;
     const svg = child.querySelector<SVGElement>('svg') ?? child.querySelector('ion-icon')?.shadowRoot?.querySelector<SVGElement>('svg');
     if (svg) {
       item.iconPosition = 'top';
