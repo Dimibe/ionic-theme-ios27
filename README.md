@@ -1,6 +1,6 @@
 # Ionic Theme and Capacitor Native UI
 
-Install from npm; see [Native UI installation](packages/capacitor-native-ui/README.md#install-from-npm) or [theme setup](packages/theme-ios27/docs/setup.md). For 1.x, use the [v1.2.1 guide](https://github.com/rdlabo-dev/ionic-theme-ios27/tree/ios27-v1.2.1).
+Install from npm; see [Native UI installation](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/readme#install-from-npm) or [theme setup](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/setup). For 1.x, use the [v1.2.1 guide](https://github.com/rdlabo-dev/ionic-theme-ios27/tree/ios27-v1.2.1).
 Bring the iOS look to your Ionic app, or add native controls to your Capacitor app while keeping Web content, routing, and application state.
 
 **[Try the Ionic 9 demo](https://ionic-theme-ios27.rdlabo.dev/) · [Try the Ionic 8 demo](https://ionic8-theme-ios27.rdlabo.dev/)**
@@ -13,17 +13,17 @@ Bring the iOS look to your Ionic app, or add native controls to your Capacitor a
 
 ## Give your Web UI the iOS look
 
-**[@rdlabo/ionic-theme-ios27](packages/theme-ios27/README.md)** brings Liquid Glass styling, light and dark appearances, and coordinated animations to Ionic toolbars, tabs, lists, buttons, search, and overlays. Use it on its own to style your Web UI.
+**[@rdlabo/ionic-theme-ios27](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/readme)** brings Liquid Glass styling, light and dark appearances, and coordinated animations to Ionic toolbars, tabs, lists, buttons, search, and overlays. Use it on its own to style your Web UI.
 
-[Get started with the theme](packages/theme-ios27/docs/setup.md) · [Explore theme features](packages/theme-ios27/docs/features.md)
+[Get started with the theme](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/setup) · [Explore theme features](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/features)
 
 ## Bring supported controls into native UI
 
-**[@rdlabo/capacitor-native-ui](packages/capacitor-native-ui/README.md)** projects supported Ionic controls into UIKit and SwiftUI on iOS. Your existing markup supplies their labels, icons, and state; native actions flow back to your Ionic components. Page content and routing stay in the WebView.
+**[@rdlabo/capacitor-native-ui](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/readme)** projects supported Ionic controls into UIKit and SwiftUI on iOS. Your existing markup supplies their labels, icons, and state; native actions flow back to your Ionic components. Page content and routing stay in the WebView.
 
 Keep your existing Web appearance or pair it with the iOS theme. Native UI is opt-in and officially supported starting with 2.0.0; unsupported controls and browsers retain Web presentation. On Android, standard controls stay on the Web; experimental app-local extensions can render with Jetpack Compose. Your app or theme owns Web layout and styling.
 
-[How projection connects to your DOM](packages/capacitor-native-ui/README.md#how-projection-works) · [Ionic setup](packages/capacitor-native-ui/docs/setup.md) · [HTML setup](packages/capacitor-native-ui/docs/framework-independent.md) · [Supported controls](packages/capacitor-native-ui/docs/native-ui.md#supported-markup)
+[How projection connects to your DOM](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/readme#how-projection-works) · [Ionic setup](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/setup) · [HTML setup](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/framework-independent) · [Supported controls](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/native-ui#supported-markup)
 
 The same Library screen with Native UI off and on, captured while dragging the selected tab:
 
@@ -31,25 +31,25 @@ The same Library screen with Native UI off and on, captured while dragging the s
 
 ## Choose what your app needs
 
-| Your goal                                                        | Start here                                                                                                     |
-| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| Style your Ionic Web UI                                          | [Set up the theme](packages/theme-ios27/docs/setup.md)                                                         |
-| Render Ionic controls natively with your existing Web appearance | [Set up Native UI](packages/capacitor-native-ui/docs/setup.md)                                                 |
-| Use native buttons without Ionic                                 | [HTML setup](packages/capacitor-native-ui/docs/framework-independent.md)                                       |
-| Add a vertical rail to Ionic while keeping your theme            | [Ionic rail setup](packages/capacitor-native-ui/docs/ionic-vertical-bars.md#try-it-in-your-existing-ionic-app) |
-| Add a vertical rail without Ionic                                | [HTML rail setup](packages/capacitor-native-ui/docs/framework-independent.md)                                  |
-| Add custom SwiftUI or Compose content                            | [App-local extensions (experimental)](packages/capacitor-native-ui/docs/native-ui-extensions.md)               |
+| Your goal                                                        | Start here                                                                                                                          |
+| ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Style your Ionic Web UI                                          | [Set up the theme](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/setup)                                                   |
+| Render Ionic controls natively with your existing Web appearance | [Set up Native UI](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/setup)                                                 |
+| Use native buttons without Ionic                                 | [HTML setup](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/framework-independent)                                       |
+| Add a vertical rail to Ionic while keeping your theme            | [Ionic rail setup](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/ionic-vertical-bars#try-it-in-your-existing-ionic-app) |
+| Add a vertical rail without Ionic                                | [HTML rail setup](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/framework-independent)                                  |
+| Add custom SwiftUI or Compose content                            | [App-local extensions (experimental)](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/native-ui-extensions)               |
 
-Already using the iOS theme? [Add Native UI to your theme](packages/theme-ios27/docs/add-native-ui.md) as your next step.
+Already using the iOS theme? [Add Native UI to your theme](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/add-native-ui) as your next step.
 
 Both packages support Ionic 8.8.1 or later within Ionic 8 or 9. Native UI requires Capacitor 8; see its setup guide for supported iOS environments.
 
 ## Explore further
 
-- [Device layout and posture](packages/theme-ios27/docs/vertical-bars-layout.md) · [Vertical Bars with an existing theme](packages/capacitor-native-ui/docs/ionic-vertical-bars.md).
-- [Theme migration](packages/theme-ios27/docs/migration.md) · [Native UI migration](packages/capacitor-native-ui/docs/migration.md).
+- [Device layout and posture](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/vertical-bars-layout) · [Vertical Bars with an existing theme](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/ionic-vertical-bars).
+- [Theme migration](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/migration) · [Native UI migration](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/migration).
 
-Use standard native buttons without Ionic through the [plain HTML adapter](packages/capacitor-native-ui/docs/framework-independent.md), or keep Ionic markup and enable only [Vertical Bars](packages/capacitor-native-ui/docs/configuration.md). Both use the same native renderers.
+Use standard native buttons without Ionic through the [plain HTML adapter](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/framework-independent), or keep Ionic markup and enable only [Vertical Bars](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/configuration). Both use the same native renderers.
 
 ## Maintenance
 

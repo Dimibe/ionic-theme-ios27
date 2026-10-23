@@ -74,11 +74,11 @@ These classes do not reposition a separate `ion-fab`; leave room for it when cho
 
 iPhone Duo support, including standalone Vertical Bars, is stable starting with version 2.0.0.
 
-iPhone Duo support — the vertical system rail, hinge posture, and the posture-driven split-pane layout — is independent of the iOS 27 theme and the full Native UI. See [Device layout and split panes](https://github.com/rdlabo-dev/ionic-theme-ios27/blob/main/packages/theme-ios27/docs/vertical-bars-layout.md) for the complete setup, including device-layout monitoring without a projection runtime.
+iPhone Duo support — the vertical system rail, hinge posture, and the posture-driven split-pane layout — is independent of the iOS 27 theme and the full Native UI. See [Device layout and split panes](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/vertical-bars-layout) for the complete setup, including device-layout monitoring without a projection runtime.
 
-See [Vertical Bars](https://github.com/rdlabo-dev/ionic-theme-ios27/blob/main/packages/capacitor-native-ui/docs/vertical-bars.md) for rail layout classes, control eligibility and native button appearance.
+See [Vertical Bars](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/vertical-bars) for rail layout classes, control eligibility and native button appearance.
 
-For standalone setup while keeping your existing theme, see [iPhone Duo with your existing theme](https://github.com/rdlabo-dev/ionic-theme-ios27/blob/main/packages/capacitor-native-ui/docs/ionic-vertical-bars.md).
+For standalone setup while keeping your existing theme, see [iPhone Duo with your existing theme](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/ionic-vertical-bars).
 
 ## Two-line inset list items
 
@@ -209,4 +209,4 @@ Add `.ios-theme-disabled` to an individual Ionic component when it must retain I
 <ion-button>iOS 27 theme</ion-button> <ion-button class="ios-theme-disabled">Standard Ionic button</ion-button>
 ```
 
-For the background model behind inset lists, see [Using `ion-item-group`](using-ion-item-group.md).
+For the background model behind inset lists, see [Using `ion-item-group`](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/using-ion-item-group).

@@ -4,7 +4,7 @@ title: Features
 
 # Features
 
-Customize the theme with CSS variables and Sass mixins, or adopt it one component at a time. Markup-specific opt-ins are documented in [Special markup and classes](special-markup.md).
+Customize the theme with CSS variables and Sass mixins, or adopt it one component at a time. Markup-specific opt-ins are documented in [Special markup and classes](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/special-markup).
 
 ## CSS variables
 
@@ -33,7 +33,7 @@ ion-textarea label.textarea-wrapper {
 
 ## Native UI
 
-Once your theme is working, [add Native UI](add-native-ui.md) to render supported fixed controls with UIKit and SwiftUI on iOS. Keep theme styles for Web content and fallback controls. Native UI is officially supported starting with 2.0.0 and remains opt-in; adding styles alone does not enable it.
+Once your theme is working, [add Native UI](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/add-native-ui) to render supported fixed controls with UIKit and SwiftUI on iOS. Keep theme styles for Web content and fallback controls. Native UI is officially supported starting with 2.0.0 and remains opt-in; adding styles alone does not enable it.
 
 ## Selective component imports
 

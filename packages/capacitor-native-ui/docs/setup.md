@@ -2,20 +2,20 @@
 
 Keep your existing Web appearance and render supported Ionic controls natively on iOS. This guide does not require iOS theme stylesheets.
 
-Already using the iOS 27 theme? Follow [Add Native UI to your theme](https://github.com/rdlabo-dev/ionic-theme-ios27/blob/main/packages/theme-ios27/docs/add-native-ui.md). Without Ionic, follow the [HTML setup](framework-independent.md) instead.
+Already using the iOS 27 theme? Follow [Add Native UI to your theme](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/add-native-ui). Without Ionic, follow the [HTML setup](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/framework-independent) instead.
 
-Read [how projection works](../README.md#how-projection-works) first if you are new to Native UI. This guide connects your existing Ionic controls to that presentation.
+Read [how projection works](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/readme#how-projection-works) first if you are new to Native UI. This guide connects your existing Ionic controls to that presentation.
 
 ## Before you start
 
-| Requirement               | Ordinary native controls                                                   |
-| ------------------------- | -------------------------------------------------------------------------- |
-| Ionic                     | `>=8.8.1 <10`                                                              |
-| Native project            | Capacitor 8 with an iOS project                                            |
-| Build tools               | Xcode 26 or later                                                          |
-| Device or simulator       | iOS 26 or later                                                            |
-| Native dependency manager | Keep your existing SPM or CocoaPods integration.                           |
-| Vertical Bars             | See the separate [device requirements](vertical-bars.md#native-rendering). |
+| Requirement               | Ordinary native controls                                                                                                          |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Ionic                     | `>=8.8.1 <10`                                                                                                                     |
+| Native project            | Capacitor 8 with an iOS project                                                                                                   |
+| Build tools               | Xcode 26 or later                                                                                                                 |
+| Device or simulator       | iOS 26 or later                                                                                                                   |
+| Native dependency manager | Keep your existing SPM or CocoaPods integration.                                                                                  |
+| Vertical Bars             | See the separate [device requirements](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/vertical-bars#native-rendering). |
 
 If the app does not yet use Capacitor, create and configure its Capacitor iOS project before following the native steps below. Browser previews retain Web controls and do not demonstrate UIKit or SwiftUI rendering.
 
@@ -58,7 +58,7 @@ Existing Ionic markup supplies labels, icons, disabled state, and actions. For e
 </ion-header>
 ```
 
-Keep your framework's handler on the original button and register the icon as usual. See [supported markup](native-ui.md#supported-markup) for eligibility; unsupported controls stay on the Web.
+Keep your framework's handler on the original button and register the icon as usual. See [supported markup](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/native-ui#supported-markup) for eligibility; unsupported controls stay on the Web.
 
 ### Place startup in your framework's app root
 
@@ -157,7 +157,7 @@ const ionicConfig = {
 };
 ```
 
-Pass this option to Angular's `provideIonicAngular`, React's `setupIonicReact`, or Vue's `IonicVue` options. For custom animations, follow the [transition adapter instructions](migration.md#native-ui-transition-adapter). This optional adapter requires the theme package but does not require its stylesheets or replace your animation.
+Pass this option to Angular's `provideIonicAngular`, React's `setupIonicReact`, or Vue's `IonicVue` options. For custom animations, follow the [transition adapter instructions](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/migration#native-ui-transition-adapter). This optional adapter requires the theme package but does not require its stylesheets or replace your animation.
 
 For a plugin-only app, use [navigation without the theme](#navigation-without-the-theme) below. Configure one approach before testing page navigation.
 
@@ -171,19 +171,19 @@ npx cap sync ios
 
 Run the iOS app from Xcode on an iOS 26+ device or simulator. Supported fixed controls should render natively and still invoke their original handlers. Navigate forward and back, including a canceled swipe-back gesture. A browser or Android build should retain working Web controls.
 
-| If you see…                           | Check…                                                                                                        |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| All controls remain on the Web on iOS | The native package is a direct dependency, the app was synced and rebuilt, and startup ran on a supported OS. |
-| Only one control remains on the Web   | Compare its markup and styles with [supported controls](native-ui.md#supported-markup).                       |
-| Controls overlap during navigation    | Configure the transition adapter or suspend/resume lifecycle before navigating.                               |
-| Missing styles or spacing             | Retain the app's Web CSS; the plugin does not supply page layout.                                             |
+| If you see…                           | Check…                                                                                                                                         |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| All controls remain on the Web on iOS | The native package is a direct dependency, the app was synced and rebuilt, and startup ran on a supported OS.                                  |
+| Only one control remains on the Web   | Compare its markup and styles with [supported controls](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/native-ui#supported-markup). |
+| Controls overlap during navigation    | Configure the transition adapter or suspend/resume lifecycle before navigating.                                                                |
+| Missing styles or spacing             | Retain the app's Web CSS; the plugin does not supply page layout.                                                                              |
 
 ## Next steps
 
-- [Vertical Bars only](ionic-vertical-bars.md): a step-by-step rail setup with your existing theme.
-- [Configuration](configuration.md): choose controls and change rail settings at runtime.
-- [Custom SwiftUI or Compose content](native-ui-extensions.md): create an app-local extension.
-- [Migration](migration.md): update older package names, imports, and native projects.
+- [Vertical Bars only](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/ionic-vertical-bars): a step-by-step rail setup with your existing theme.
+- [Configuration](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/configuration): choose controls and change rail settings at runtime.
+- [Custom SwiftUI or Compose content](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/native-ui-extensions): create an app-local extension.
+- [Migration](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/migration): update older package names, imports, and native projects.
 
 ## Navigation without the theme
 

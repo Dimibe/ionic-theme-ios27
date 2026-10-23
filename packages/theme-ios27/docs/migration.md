@@ -13,7 +13,7 @@ Theme styles and ordinary theme API imports remain supported. If you previously 
 | `@rdlabo/ionic-theme-ios27/native`        | `@rdlabo/capacitor-native-ui`               |
 | `@rdlabo/ionic-theme-ios27/vertical-bars` | `@rdlabo/capacitor-native-ui/vertical-bars` |
 
-Add the native package as a direct application dependency, update imports, rebuild Web assets, and run `npx cap sync ios`. Follow the [Native UI migration guide](https://github.com/rdlabo-dev/ionic-theme-ios27/blob/main/packages/capacitor-native-ui/docs/migration.md) for 1.2.1 startup settings and native project changes. Theme-only apps do not need native startup or plugin setup.
+Add the native package as a direct application dependency, update imports, rebuild Web assets, and run `npx cap sync ios`. Follow the [Native UI migration guide](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/migration) for 1.2.1 startup settings and native project changes. Theme-only apps do not need native startup or plugin setup.
 
 ## Device layout in 2.0
 
@@ -33,11 +33,11 @@ Replace the former device-layout APIs with Foldable subscriptions:
 | Start/stop device-layout monitoring  | Subscribe with `addListener()`; remove each listener at teardown                    |
 | One-shot WebView corner-radius reads | Native UI's `getWebViewMetrics()`                                                   |
 
-Apply placement with `setVerticalBarsLayout` and posture with `applyFoldStateClasses`, both imported from the theme. Read the initial state as well as subscribing to changes. See [device layout and split panes](vertical-bars-layout.md#read-the-device-layout) and [rail projection](../../capacitor-native-ui/docs/vertical-bars.md#use-with-capacitor-foldable) for the current setup. Installing the packages alone does not subscribe to device events or activate projection.
+Apply placement with `setVerticalBarsLayout` and posture with `applyFoldStateClasses`, both imported from the theme. Read the initial state as well as subscribing to changes. See [device layout and split panes](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/vertical-bars-layout#read-the-device-layout) and [rail projection](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/vertical-bars#use-with-capacitor-foldable) for the current setup. Installing the packages alone does not subscribe to device events or activate projection.
 
 ## From the iOS 26 theme
 
-For an app using `@rdlabo/ionic-theme-ios26`, the recommended migration keeps that package and adds `@rdlabo/ionic-theme-ios27`. The [adaptive theme setup](adaptive-themes.md) selects iOS 27 or iOS 26 styles by browser capability and leaves Ionic's default iOS appearance on older browsers.
+For an app using `@rdlabo/ionic-theme-ios26`, the recommended migration keeps that package and adds `@rdlabo/ionic-theme-ios27`. The [adaptive theme setup](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/adaptive-themes) selects iOS 27 or iOS 26 styles by browser capability and leaves Ionic's default iOS appearance on older browsers.
 
 ### 1. Add the new package
 
@@ -135,7 +135,7 @@ To switch entirely to iOS 27, remove the iOS 26 package and replace its styleshe
 + @use '@rdlabo/ionic-theme-ios27/src/styles/md-remove-ios-class-effect.scss';
 ```
 
-Change the animation import from `@rdlabo/ionic-theme-ios26` to `@rdlabo/ionic-theme-ios27`; the existing `isPlatform('ios')` configuration can stay. See the [iOS 27 setup](setup.md). Unconditional imports apply the new styles on every browser using Ionic iOS mode.
+Change the animation import from `@rdlabo/ionic-theme-ios26` to `@rdlabo/ionic-theme-ios27`; the existing `isPlatform('ios')` configuration can stay. See the [iOS 27 setup](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/setup). Unconditional imports apply the new styles on every browser using Ionic iOS mode.
 
 ## iOS 27 naming
 
@@ -148,7 +148,7 @@ For the iOS 27 branch or an iOS 27-only app, use `@rdlabo/ionic-theme-ios27`. It
 
 Use the version-independent names for new customizations.
 
-See [Special markup and classes](special-markup.md) and [Default variables](../src/styles/default-variables.scss) for the current names.
+See [Special markup and classes](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/special-markup) and [Default variables](../src/styles/default-variables.scss) for the current names.
 
 Earlier migration notes are preserved in the [iOS 26 migration guide](https://docs.rdlabo.dev/projects/ionic-theme-ios26/docs/migration).
 

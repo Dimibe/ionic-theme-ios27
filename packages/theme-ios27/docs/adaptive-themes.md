@@ -1,6 +1,6 @@
 # Use iOS 26, iOS 27, and MD3 themes
 
-Use this optional setup when you want browser capabilities to select iOS styles, or want MD3 in Material Design mode. For a single iOS 27 appearance, follow [theme setup](setup.md). These steps replace the stylesheet and animation configuration in that guide.
+Use this optional setup when you want browser capabilities to select iOS styles, or want MD3 in Material Design mode. For a single iOS 27 appearance, follow [theme setup](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/setup). These steps replace the stylesheet and animation configuration in that guide.
 
 ## 1. Install the themes
 
@@ -52,7 +52,7 @@ The checks select browser capabilities, not iOS versions:
 | `text-wrap: pretty`, without `overflow-anchor: auto` | iOS 26 theme.                   |
 | Neither feature                                      | Ionic's default iOS appearance. |
 
-The example uses class-based dark mode: also load [Ionic's matching dark palette](https://ionicframework.com/docs/theming/dark-mode). For system or always-dark mode, replace both `-dark-class` imports with the matching variant; see the [dark-mode pairs](setup.md#choose-one-dark-mode-pair). The `md-remove-ios-class-effect` styles prevent iOS-specific classes from affecting Material Design mode.
+The example uses class-based dark mode: also load [Ionic's matching dark palette](https://ionicframework.com/docs/theming/dark-mode). For system or always-dark mode, replace both `-dark-class` imports with the matching variant; see the [dark-mode pairs](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/setup#choose-one-dark-mode-pair). The `md-remove-ios-class-effect` styles prevent iOS-specific classes from affecting Material Design mode.
 
 ## 3. Configure animations
 
@@ -90,7 +90,7 @@ setConfig({ radius });
 
 Test on iOS. When previewing on desktop, set Ionic mode to `ios` in your existing framework initialization config (for example `mode: 'ios'`).
 
-Use this markup to preview the inset grouped list look. For the list structure the theme expects, see [Using ion-item-group](using-ion-item-group.md).
+Use this markup to preview the inset grouped list look. For the list structure the theme expects, see [Using ion-item-group](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/using-ion-item-group).
 
 ```html
 <ion-list mode="ios" inset="true">

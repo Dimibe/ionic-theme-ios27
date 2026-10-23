@@ -1,6 +1,6 @@
 # Vertical Bars layout
 
-This optional theme stylesheet owns Web spacing and positioning around a vertical rail. It can be used with your existing theme without loading the full iOS 27 appearance. Native rendering and state synchronization are provided separately by [Capacitor Native UI](https://github.com/rdlabo-dev/ionic-theme-ios27/blob/main/packages/capacitor-native-ui/docs/vertical-bars.md).
+This optional theme stylesheet owns Web spacing and positioning around a vertical rail. It can be used with your existing theme without loading the full iOS 27 appearance. Native rendering and state synchronization are provided separately by [Capacitor Native UI](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/vertical-bars).
 
 ```sh
 npm install @rdlabo/ionic-theme-ios27 @erkamyaman/capacitor-foldable
@@ -10,11 +10,11 @@ npm install @rdlabo/ionic-theme-ios27 @erkamyaman/capacitor-foldable
 @use '@rdlabo/ionic-theme-ios27/dist/css/vertical-bars.css';
 ```
 
-The layout behavior below assumes this stylesheet is loaded. For native runtime setup and device placement, follow the [integration guide](https://github.com/rdlabo-dev/ionic-theme-ios27/blob/main/packages/capacitor-native-ui/docs/ionic-vertical-bars.md).
+The layout behavior below assumes this stylesheet is loaded. For native runtime setup and device placement, follow the [integration guide](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/ionic-vertical-bars).
 
 ## Reserve the vertical rail
 
-For device setup, use the installed Foldable plugin and apply its initial placement and events through `setVerticalBarsLayout`; follow the [standard Ionic rail setup](../../capacitor-native-ui/docs/ionic-vertical-bars.md). The classes below describe the stylesheet's layout inputs and optional browser simulation, not a manual device setup step.
+For device setup, use the installed Foldable plugin and apply its initial placement and events through `setVerticalBarsLayout`; follow the [standard Ionic rail setup](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/ionic-vertical-bars). The classes below describe the stylesheet's layout inputs and optional browser simulation, not a manual device setup step.
 
 Add `.ios-theme-vertical-bars` to `ion-app` to reserve the rail region on the physical right, or add `.ios-theme-vertical-bars-left` as well to use the physical left:
 
@@ -136,4 +136,4 @@ Ionic's `when` still controls whether the menu is persistent. The example choose
 
 ## Migration
 
-Move `setVerticalControlAreaPlacement` calls from the plugin to `setVerticalBarsLayout({ edge, inset })` from the theme. Move `applyFoldStateClasses` imports to the theme too. Remove `nativeEdge`: it no longer reports availability. The old plugin helpers are deprecated; update existing imports using the [migration guide](../../capacitor-native-ui/docs/migration.md#web-layout-ownership).
+Move `setVerticalControlAreaPlacement` calls from the plugin to `setVerticalBarsLayout({ edge, inset })` from the theme. Move `applyFoldStateClasses` imports to the theme too. Remove `nativeEdge`: it no longer reports availability. The old plugin helpers are deprecated; update existing imports using the [migration guide](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/migration#web-layout-ownership).

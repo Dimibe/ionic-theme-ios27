@@ -8,7 +8,7 @@ title: App-local Native UI extensions (experimental)
 
 An extension projects your existing Web UI into a SwiftUI View on iOS or Jetpack Compose content on Android. Keep both definitions in your application: no npm package, separate library, or Capacitor plugin is required. The Web element remains the source of truth and the fallback UI.
 
-Extensions use the same [projection model](../README.md#how-projection-works) as built-in controls. Define the DOM data and actions to expose, then provide their native presentation.
+Extensions use the same [projection model](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/readme#how-projection-works) as built-in controls. Define the DOM data and actions to expose, then provide their native presentation.
 
 ## Before you start
 
@@ -21,7 +21,7 @@ npm install @rdlabo/capacitor-native-ui @erkamyaman/capacitor-foldable
 Choose the native platform you want to support:
 
 - **Android:** use your Capacitor Android project and an API 24+ device or emulator. Follow step 1, then the [Kotlin/Compose registration](#2b-register-compose-content-on-android), and steps 3–4. No iOS project, Xcode, Ionic, or theme package is required.
-- **iOS:** use your Capacitor iOS project, Xcode 26+, and an iOS 26+ device or simulator. Follow step 1, the [SwiftUI registration](#2a-register-a-swiftui-view-on-ios), and steps 3–4. To also project standard controls, follow [Ionic setup](setup.md) or [HTML setup](framework-independent.md).
+- **iOS:** use your Capacitor iOS project, Xcode 26+, and an iOS 26+ device or simulator. Follow step 1, the [SwiftUI registration](#2a-register-a-swiftui-view-on-ios), and steps 3–4. To also project standard controls, follow [Ionic setup](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/setup) or [HTML setup](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/framework-independent).
 - **Both:** share the DOM reader from step 1 and register native content for the same name on each platform.
 
 The TypeScript examples below use the Ionic entry. Without Ionic, import both `defineNativeUI` and `enableNativeUI` from `@rdlabo/capacitor-native-ui/core`.
@@ -213,7 +213,7 @@ const shell = await enableNativeUI({ ionic: { auto: false }, extensions: [counte
 
 This example enables your extensions without automatically projecting Ionic controls. Explicit `data-native-ui` sources remain opted in. To also project standard Ionic controls on supported iOS, omit `ionic: { auto: false }`. Android standard controls remain Web-rendered either way.
 
-Replace your existing startup call with the one above; do not start a second shell. Connect it to your framework using the [app-root lifecycle examples](setup.md#place-startup-in-your-frameworks-app-root), putting these options in the shared startup call.
+Replace your existing startup call with the one above; do not start a second shell. Connect it to your framework using the [app-root lifecycle examples](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/setup#place-startup-in-your-frameworks-app-root), putting these options in the shared startup call.
 
 Keep extension objects stable across repeated enable calls. Changing extensions while running requires `await shell.destroy()` first. Extension names must be unique within an activation. Do not register overlapping selectors for the same source. An extension owns its source subtree, so built-in controls inside it are not projected separately.
 
@@ -226,7 +226,7 @@ Build your Web assets, then sync and rebuild the platform you configured:
 
 Tap Increment: the original Web handler should update `data-count`, and the native count should follow. In a browser, the original Web counter should still work.
 
-For source-specific fallback reasons, temporarily enable [`debug: true`](configuration.md#understand-why-a-source-stays-on-the-web). If the source stays on the Web, confirm that registration runs before JavaScript enables the shell and that the names and props agree on both sides. On Android, check that your `Application` subclass is declared in the manifest; on iOS, check that the Swift file belongs to the app target.
+For source-specific fallback reasons, temporarily enable [`debug: true`](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/configuration#understand-why-a-source-stays-on-the-web). If the source stays on the Web, confirm that registration runs before JavaScript enables the shell and that the names and props agree on both sides. On Android, check that your `Application` subclass is declared in the manifest; on iOS, check that the Swift file belongs to the app target.
 
 ## Content and placement are independent
 

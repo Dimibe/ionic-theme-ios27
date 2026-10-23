@@ -23,14 +23,14 @@ Projection changes presentation; it does not translate arbitrary HTML or CSS int
 
 ## Choose what to build
 
-| Goal                                                | Start here                                                                                                                          |
-| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Render existing Ionic controls natively             | [Ionic setup](docs/setup.md)                                                                                                        |
-| Use native buttons without Ionic                    | [HTML setup](docs/framework-independent.md)                                                                                         |
-| Add a side rail to Ionic while keeping your theme   | [Vertical Bars step by step](docs/ionic-vertical-bars.md)                                                                           |
-| Add a side rail without Ionic                       | [HTML rail setup](docs/framework-independent.md)                                                                                    |
-| Add native controls to an existing iOS 27 theme app | [Add Native UI to your theme](https://github.com/rdlabo-dev/ionic-theme-ios27/blob/main/packages/theme-ios27/docs/add-native-ui.md) |
-| Render custom SwiftUI or Android Compose content    | [App-local extensions (experimental)](docs/native-ui-extensions.md)                                                                 |
+| Goal                                                | Start here                                                                                                            |
+| --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Render existing Ionic controls natively             | [Ionic setup](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/setup)                                        |
+| Use native buttons without Ionic                    | [HTML setup](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/framework-independent)                         |
+| Add a side rail to Ionic while keeping your theme   | [Vertical Bars step by step](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/ionic-vertical-bars)           |
+| Add a side rail without Ionic                       | [HTML rail setup](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/framework-independent)                    |
+| Add native controls to an existing iOS 27 theme app | [Add Native UI to your theme](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/add-native-ui)                  |
+| Render custom SwiftUI or Android Compose content    | [App-local extensions (experimental)](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/native-ui-extensions) |
 
 ## Install from npm
 
@@ -50,20 +50,20 @@ npm install @rdlabo/capacitor-native-ui @rdlabo/ionic-theme-ios27 @erkamyaman/ca
 
 The theme and Native UI share the same release version; Foldable is versioned independently. Declare Native UI as a direct dependency so Capacitor can discover the plugin. The setup commands install Foldable as a separate application dependency. Installing these packages does not activate native controls; application startup chooses projection and connects device layout.
 
-Continue with [Ionic setup](docs/setup.md), [HTML setup](docs/framework-independent.md), or [extensions](docs/native-ui-extensions.md). After configuring startup, build your application's Web assets, run `npx cap sync` and rebuild the native app. No repository checkout or archive download is needed.
+Continue with [Ionic setup](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/setup), [HTML setup](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/framework-independent), or [extensions](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/native-ui-extensions). After configuring startup, build your application's Web assets, run `npx cap sync` and rebuild the native app. No repository checkout or archive download is needed.
 
-Upgrading from the native APIs bundled in theme 1.2.0 or 1.2.1? Follow the [migration guide](docs/migration.md) for import, configuration and native project changes.
+Upgrading from the native APIs bundled in theme 1.2.0 or 1.2.1? Follow the [migration guide](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/migration) for import, configuration and native project changes.
 
 ## Requirements
 
-Native startup requires Capacitor 8 and an iOS or Android project. Android extensions require API 24+ and Kotlin/Compose. Ordinary native rendering requires iOS 26+ and Xcode 26+. The Ionic adapter supports Ionic `>=8.8.1 <10`; the `/core` HTML adapter requires no Ionic or theme package. [Vertical Bars](docs/vertical-bars.md) and [extension placement](docs/native-ui-extensions.md#content-and-placement-are-independent) have additional device requirements.
+Native startup requires Capacitor 8 and an iOS or Android project. Android extensions require API 24+ and Kotlin/Compose. Ordinary native rendering requires iOS 26+ and Xcode 26+. The Ionic adapter supports Ionic `>=8.8.1 <10`; the `/core` HTML adapter requires no Ionic or theme package. [Vertical Bars](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/vertical-bars) and [extension placement](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/native-ui-extensions#content-and-placement-are-independent) have additional device requirements.
 
-For standard controls, follow the setup guide for your markup; the Ionic and HTML adapters use different imports. For custom native content, start directly with the [extensions guide](docs/native-ui-extensions.md).
+For standard controls, follow the setup guide for your markup; the Ionic and HTML adapters use different imports. For custom native content, start directly with the [extensions guide](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/native-ui-extensions).
 
 ## Reference
 
-- [Supported Ionic controls](docs/native-ui.md#supported-markup) and fallback behavior.
-- [Configuration](docs/configuration.md): defaults, selected controls, rail-only mode, and live changes.
-- [Light and dark appearance](docs/appearance.md): inherit the Web theme, configure custom HTML, and understand shared rail appearance.
-- [Vertical Bars](docs/vertical-bars.md): eligibility, appearance, and runtime API.
-- [Migration](docs/migration.md): package names, imports, and native project updates.
+- [Supported Ionic controls](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/native-ui#supported-markup) and fallback behavior.
+- [Configuration](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/configuration): defaults, selected controls, rail-only mode, and live changes.
+- [Light and dark appearance](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/appearance): inherit the Web theme, configure custom HTML, and understand shared rail appearance.
+- [Vertical Bars](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/vertical-bars): eligibility, appearance, and runtime API.
+- [Migration](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/migration): package names, imports, and native project updates.

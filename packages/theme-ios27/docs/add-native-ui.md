@@ -2,13 +2,13 @@
 
 Already using `@rdlabo/ionic-theme-ios27`? Add native controls on iOS while keeping your theme styles, Web content, and routing. Unsupported controls, browsers, and Android retain their Web appearance.
 
-Start with [theme setup](setup.md) if you have not configured the theme yet. If you use a different Web appearance, follow [Native UI setup](../../capacitor-native-ui/docs/setup.md) instead.
+Start with [theme setup](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/setup) if you have not configured the theme yet. If you use a different Web appearance, follow [Native UI setup](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/setup) instead.
 
-Read [how projection works](../../capacitor-native-ui/README.md#how-projection-works) for how native controls remain connected to your Web DOM and handlers.
+Read [how projection works](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/readme#how-projection-works) for how native controls remain connected to your Web DOM and handlers.
 
 ## 1. Install the native plugin
 
-This guide assumes a Capacitor 8 application with an iOS project. Web-only theme users can continue without Capacitor; adding native iOS controls requires setting up that native project first. See [Native UI requirements](../../capacitor-native-ui/README.md#requirements) for supported Ionic, iOS, and Xcode versions.
+This guide assumes a Capacitor 8 application with an iOS project. Web-only theme users can continue without Capacitor; adding native iOS controls requires setting up that native project first. See [Native UI requirements](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/readme#requirements) for supported Ionic, iOS, and Xcode versions.
 
 Update the theme and Native UI together to keep their versions aligned, and install Foldable as a separate application dependency:
 
@@ -28,9 +28,9 @@ import { enableNativeUI } from '@rdlabo/capacitor-native-ui';
 const shell = await enableNativeUI();
 ```
 
-Call `await shell.destroy()` when the application owner is disposed; do not create a shell for each page. Use the [Angular, React, or Vue app-root examples](../../capacitor-native-ui/docs/setup.md#place-startup-in-your-frameworks-app-root) to connect startup and cleanup.
+Call `await shell.destroy()` when the application owner is disposed; do not create a shell for each page. Use the [Angular, React, or Vue app-root examples](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/setup#place-startup-in-your-frameworks-app-root) to connect startup and cleanup.
 
-Keep `navAnimation: iosTransitionAnimation` from the theme package. It already coordinates native controls during page transitions and back gestures; do not wrap it again. If you use a custom animation, follow the [transition adapter instructions](../../capacitor-native-ui/docs/migration.md#native-ui-transition-adapter).
+Keep `navAnimation: iosTransitionAnimation` from the theme package. It already coordinates native controls during page transitions and back gestures; do not wrap it again. If you use a custom animation, follow the [transition adapter instructions](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/migration#native-ui-transition-adapter).
 
 Installing the plugin or configuring theme animations does not activate native controls. The application enables them with the startup call above.
 
@@ -42,12 +42,12 @@ Build your Web assets, then run:
 npx cap sync ios
 ```
 
-Run the app on a supported iOS device or simulator. Eligible fixed controls should use native presentation and still invoke their existing handlers. Navigate forward and back, then check the same app in a browser to confirm Web fallback. If everything stays on the Web on supported iOS, confirm the direct dependency, startup call, sync, and native rebuild. See [supported controls](../../capacitor-native-ui/docs/native-ui.md#supported-markup) for eligible markup and Web fallback behavior. Retain your theme styles for Web content and controls that are not projected.
+Run the app on a supported iOS device or simulator. Eligible fixed controls should use native presentation and still invoke their existing handlers. Navigate forward and back, then check the same app in a browser to confirm Web fallback. If everything stays on the Web on supported iOS, confirm the direct dependency, startup call, sync, and native rebuild. See [supported controls](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/native-ui#supported-markup) for eligible markup and Web fallback behavior. Retain your theme styles for Web content and controls that are not projected.
 
 ## Optional: Vertical Bars
 
-For a side rail, follow the [standard Vertical Bars setup](../../capacitor-native-ui/docs/ionic-vertical-bars.md): load the layout stylesheet and connect the installed Foldable plugin’s initial placement and events. The Shell includes the rail runtime; no additional startup call is needed. The default startup already selects both horizontal and rail controls; keep it when adding a rail to your existing native UI. Use `enableNativeUI({ controls: 'verticalOnly' })` only when you want automatic projection limited to the rail. See [configuration options](../../capacitor-native-ui/docs/configuration.md).
+For a side rail, follow the [standard Vertical Bars setup](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/ionic-vertical-bars): load the layout stylesheet and connect the installed Foldable plugin’s initial placement and events. The Shell includes the rail runtime; no additional startup call is needed. The default startup already selects both horizontal and rail controls; keep it when adding a rail to your existing native UI. Use `enableNativeUI({ controls: 'verticalOnly' })` only when you want automatic projection limited to the rail. See [configuration options](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/configuration).
 
 ## Upgrading an existing native integration
 
-If you previously imported native APIs from the theme package, follow the [native import migration](../../capacitor-native-ui/docs/migration.md#2-replace-native-imports) and [native project migration](../../capacitor-native-ui/docs/migration.md#3-sync-the-native-project). Keep ordinary theme imports and stylesheets.
+If you previously imported native APIs from the theme package, follow the [native import migration](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/migration#2-replace-native-imports) and [native project migration](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/migration#3-sync-the-native-project). Keep ordinary theme imports and stylesheets.

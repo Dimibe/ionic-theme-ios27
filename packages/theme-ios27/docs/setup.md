@@ -1,6 +1,6 @@
 # Set up the iOS 27 theme
 
-Give an existing Ionic app the iOS 27 appearance in four steps. This guide uses the iOS 27 theme on its own and system dark mode. For browser-dependent iOS 26/27 styling or MD3, use [adaptive themes](adaptive-themes.md) instead.
+Give an existing Ionic app the iOS 27 appearance in four steps. This guide uses the iOS 27 theme on its own and system dark mode. For browser-dependent iOS 26/27 styling or MD3, use [adaptive themes](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/adaptive-themes) instead.
 
 ## Before you start
 
@@ -12,7 +12,7 @@ Use an existing Ionic Angular, React, or Vue application with Ionic `>=8.8.1 <10
 npm install @rdlabo/ionic-theme-ios27 @erkamyaman/capacitor-foldable
 ```
 
-[Capacitor Foldable](https://github.com/erkamyaman/capacitor-foldable) is our standard integration for device state. Its placement and posture APIs let your app control how the layout adapts; installing it is followed by connecting its initial values and change events. Connect it using the [layout guide](vertical-bars-layout.md) when configuring device layout.
+[Capacitor Foldable](https://github.com/erkamyaman/capacitor-foldable) is our standard integration for device state. Its placement and posture APIs let your app control how the layout adapts; installing it is followed by connecting its initial values and change events. Connect it using the [layout guide](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/vertical-bars-layout) when configuring device layout.
 
 ## 2. Load the styles
 
@@ -36,7 +36,7 @@ Use one matching Ionic palette and theme variant. Paths below are relative to `@
 | Manual                 | `dark.class.css`  | `ionic-theme-ios27-dark-class.css`  | Toggle `ion-palette-dark` on the document root. |
 | Always dark            | `dark.always.css` | `ionic-theme-ios27-dark-always.css` | Always active.                                  |
 
-If you also enable Native UI, these styles provide its light/dark appearance marker. Keep the Ionic palette and theme variant paired so Web and native controls agree. See [native appearance inheritance](../../capacitor-native-ui/docs/appearance.md) for the resolution order and shared rail behavior.
+If you also enable Native UI, these styles provide its light/dark appearance marker. Keep the Ionic palette and theme variant paired so Web and native controls agree. See [native appearance inheritance](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/appearance) for the resolution order and shared rail behavior.
 
 ## 3. Configure Ionic animations
 
@@ -62,7 +62,7 @@ This example deliberately uses `ios` mode so desktop browsers show the theme too
 | React             | `setupIonicReact(ionicConfig)` imported from `@ionic/react`                  |
 | Vue               | `app.use(IonicVue, ionicConfig)` with `IonicVue` from `@ionic/vue`           |
 
-Merge with existing options; do not initialize Ionic twice. To retain Material Design mode on Android, keep your platform-based mode selection and apply these animation options only to the iOS configuration. See [adaptive themes](adaptive-themes.md) for a complete platform-aware example.
+Merge with existing options; do not initialize Ionic twice. To retain Material Design mode on Android, keep your platform-based mode selection and apply these animation options only to the iOS configuration. See [adaptive themes](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/adaptive-themes) for a complete platform-aware example.
 
 ## 4. Preview your first screen
 
@@ -77,7 +77,7 @@ Start your application's usual development server and open an existing page. Add
 </ion-list>
 ```
 
-You should see an inset group with rounded edges. Switch the system between light and dark appearance, then navigate between pages to see the theme transition. Read [Using ion-item-group](using-ion-item-group.md) for list structure.
+You should see an inset group with rounded edges. Switch the system between light and dark appearance, then navigate between pages to see the theme transition. Read [Using ion-item-group](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/using-ion-item-group) for list structure.
 
 | If you see…                         | Check…                                                        |
 | ----------------------------------- | ------------------------------------------------------------- |
@@ -88,7 +88,7 @@ You should see an inset group with rounded edges. Switch the system between ligh
 
 ## Next steps
 
-- [Customize styles and components](features.md).
-- [Add Native UI](add-native-ui.md) for supported controls in a Capacitor iOS app. Theme installation alone does not enable native controls.
-- [Add Vertical Bars with an existing theme](../../capacitor-native-ui/docs/ionic-vertical-bars.md).
-- [Migrate an existing app](migration.md).
+- [Customize styles and components](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/features).
+- [Add Native UI](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/add-native-ui) for supported controls in a Capacitor iOS app. Theme installation alone does not enable native controls.
+- [Add Vertical Bars with an existing theme](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/ionic-vertical-bars).
+- [Migrate an existing app](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/migration).
