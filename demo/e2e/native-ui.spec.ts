@@ -9,6 +9,7 @@ import type { NativeUIMockCore, TestAppElement } from './native-ui-mock';
 const importer = new NodePackageImporter(resolve(__dirname, '../../'));
 
 interface NativeUIMock extends NativeUIMockCore {
+  toolbarProgress: { id: number; progress: number }[];
   delay: number;
   hang: boolean;
   rejectInactiveSearch: boolean;
@@ -26,6 +27,10 @@ const mockNative = async (page: Page, fail = false, nativeEdge: 'leading' | 'tra
   const script = ([fail, nativeEdge]: readonly [boolean, 'leading' | 'trailing' | null | 'unreported']) => {
     const mock = {
       updates: [] as NativeUISnapshot[],
+      toolbarProgress: [] as { id: number; progress: number }[],
+      async setToolbarTransitionProgress(value: { id: number; progress: number }) {
+        this.toolbarProgress.push(value);
+      },
       sequence: 0,
       delay: 0,
       hang: false,
@@ -74,11 +79,16 @@ const mockNative = async (page: Page, fail = false, nativeEdge: 'leading' | 'tra
         this.updates.push({ revision: options.revision, viewportWidth: 0, controls: [] });
         return this.rejections(options);
       },
-      async rejections(options: { revision?: number; controls?: NativeUIControl[] }) {
+      async rejections(options: {
+        revision?: number;
+        controls?: NativeUIControl[];
+        toolbarTransition?: NativeUISnapshot['toolbarTransition'];
+      }) {
         if (this.delay) await new Promise((resolve) => setTimeout(resolve, this.delay));
         if (fail && options.controls?.length) throw new Error('Test native failure');
         return {
           revision: options.revision,
+          toolbarTransition: options.toolbarTransition?.id,
           rejectedSearches:
             this.rejectInactiveSearch || this.rejectAllSearch
               ? options.controls
@@ -674,8 +684,21 @@ test('native verticalBars toolbar returns with Index after a pushed page', async
 });
 
 test('native verticalBars actions follow WillEnter and stay enabled during navigation', async ({ page }) => {
+  // Projection starts at WillEnter. Wait for the real initial navigation before
+  // sending synthetic lifecycle events, or its DidEnter can undo our WillLeave.
+  await page.addInitScript(() => {
+    document.addEventListener(
+      'ionViewDidEnter',
+      (event) => {
+        const target = event.target as HTMLElement;
+        if (target.matches('app-native-ui')) target.setAttribute('data-test-did-enter', '');
+      },
+      true,
+    );
+  });
   await mockNative(page);
   await page.goto('/main/index/native-ui');
+  await expect(page.locator('app-native-ui')).toHaveAttribute('data-test-did-enter', '');
   await page.locator('app-native-ui ion-button[type=submit] ion-icon').evaluate((icon) => {
     icon.setAttribute('slot', 'icon-only');
     icon.parentElement!.querySelector('[data-label]')?.remove();
@@ -683,6 +706,16 @@ test('native verticalBars actions follow WillEnter and stay enabled during navig
   await page.locator('ion-app').evaluate((app) => app.classList.add('ios-theme-vertical-bars'));
   const source = page.locator('app-native-ui ion-back-button');
   await expect(source).toHaveAttribute('data-native-ui-projected', '');
+  // The marker may still belong to the preceding horizontal projection.
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        Capacitor.registerPlugin<NativeUIMock>('NativeUI')
+          .updates.at(-1)!
+          .controls.some((control: NativeUIControl) => control.kind === 'back-button' && control.placement === 'vertical-bars'),
+      ),
+    )
+    .toBe(true);
   const routedPage = page.locator('app-native-ui.ion-page');
 
   await routedPage.evaluate((element) => element.dispatchEvent(new CustomEvent('ionViewWillLeave', { bubbles: true })));
@@ -1548,85 +1581,104 @@ test('ion-icon SVGs project and update when their name changes', async ({ page }
   await expect(button).toHaveAttribute('data-native-ui-projected', '');
 });
 
-test('clear ion-buttons share one glass surface and keep independent actions', async ({ page }) => {
-  await mockNative(page);
-  await page.goto('/main/index/native-ui');
-  const group = page.locator('[data-glass-group]');
-  const github = group.locator('ion-button').nth(0);
-  const refresh = group.locator('ion-button').nth(1);
-  const projectedGroup = () =>
-    page.evaluate(
-      () =>
-        Capacitor.registerPlugin<NativeUIMock>('NativeUI')
-          .updates.at(-1)!
-          .controls.find(
-            (control: NativeUIControl) =>
-              control.kind === 'button-group' && control.items.some((item: NativeUIItem) => item.accessibilityLabel === 'GitHub'),
-          )!,
-    );
-  await expect(group).toHaveAttribute('data-native-ui-projected', '');
-  await expect(group.locator('[data-native-ui-projected]')).toHaveCount(0);
-  await expect(github.locator('button')).toHaveCSS('visibility', 'hidden');
-  const native = await projectedGroup();
-  expect(native.items).toHaveLength(2);
-  expect(native.items.map((item: NativeUIItem) => item.accessibilityLabel)).toEqual(['GitHub', 'Refresh']);
-  const githubName = () =>
-    page.evaluate(
-      (id) =>
-        Capacitor.registerPlugin<NativeUIMock>('NativeUI')
-          .updates.at(-1)!
-          .controls.find((control: NativeUIControl) => control.id === id)?.items[0]?.accessibilityLabel,
-      native.id,
-    );
-  await github.locator('ion-icon').evaluate((icon) => icon.setAttribute('aria-hidden', 'true'));
-  await expect.poll(githubName).not.toBe('GitHub');
-  await github.locator('ion-icon').evaluate((icon) => icon.removeAttribute('aria-hidden'));
-  await expect.poll(githubName).toBe('GitHub');
-  for (const item of native.items) expect(item.icon).toMatch(/^iVBOR/);
-  await activate(page, 'GitHub', true);
-  await expect(page.locator('ion-title').filter({ hasText: 'Actions:' })).toHaveText('Actions: 1 / 0');
-  await expect.poll(async () => (await projectedGroup())?.items.length).toBe(2);
-  await activate(page, 'Refresh');
-  await expect(page.locator('ion-title').filter({ hasText: 'Actions:' })).toHaveText('Actions: 1 / 1');
+for (const nativeEdge of [null, 'trailing'] as const) {
+  test(`clear ion-buttons share one glass surface and keep independent actions (${nativeEdge ?? 'horizontal'})`, async ({ page }) => {
+    await mockNative(page, false, nativeEdge);
+    await page.goto('/main/index/native-ui');
+    const group = page.locator('[data-glass-group]');
+    const github = group.locator('ion-button').nth(0);
+    const refresh = group.locator('ion-button').nth(1);
+    const projectedGroup = () =>
+      page.evaluate(
+        () =>
+          Capacitor.registerPlugin<NativeUIMock>('NativeUI')
+            .updates.at(-1)!
+            .controls.find(
+              (control: NativeUIControl) =>
+                control.kind === 'button-group' && control.items.some((item: NativeUIItem) => item.accessibilityLabel === 'GitHub'),
+            )!,
+      );
+    await expect(group).toHaveAttribute('data-native-ui-projected', '');
+    await expect(group.locator('[data-native-ui-projected]')).toHaveCount(0);
+    await expect(github.locator('button')).toHaveCSS('visibility', 'hidden');
+    const native = await projectedGroup();
+    expect(native.items).toHaveLength(2);
+    expect(native.items.map((item: NativeUIItem) => item.accessibilityLabel)).toEqual(['GitHub', 'Refresh']);
+    const githubName = () =>
+      page.evaluate(
+        (id) =>
+          Capacitor.registerPlugin<NativeUIMock>('NativeUI')
+            .updates.at(-1)!
+            .controls.find((control: NativeUIControl) => control.id === id)?.items[0]?.accessibilityLabel,
+        native.id,
+      );
+    await github.locator('ion-icon').evaluate((icon) => icon.setAttribute('aria-hidden', 'true'));
+    await expect.poll(githubName).not.toBe('GitHub');
+    await github.locator('ion-icon').evaluate((icon) => icon.removeAttribute('aria-hidden'));
+    await expect.poll(githubName).toBe('GitHub');
+    for (const item of native.items) expect(item.icon).toMatch(/^iVBOR/);
+    await activate(page, 'GitHub', true);
+    await expect(page.locator('ion-title').filter({ hasText: 'Actions:' })).toHaveText('Actions: 1 / 0');
+    await expect.poll(async () => (await projectedGroup())?.items.length).toBe(2);
+    await activate(page, 'Refresh');
+    await expect(page.locator('ion-title').filter({ hasText: 'Actions:' })).toHaveText('Actions: 1 / 1');
 
-  await refresh.evaluate((element: HTMLIonButtonElement) => {
-    element.disabled = true;
-  });
-  await expect.poll(async () => (await projectedGroup())?.items[1].disabled).toBe(true);
-  await activate(page, 'Refresh');
-  await expect(page.locator('ion-title').filter({ hasText: 'Actions:' })).toHaveText('Actions: 1 / 1');
-  await refresh.evaluate((element: HTMLIonButtonElement) => {
-    element.disabled = false;
-  });
+    await refresh.evaluate((element: HTMLIonButtonElement) => {
+      element.disabled = true;
+    });
+    await expect.poll(async () => (await projectedGroup())?.items[1].disabled).toBe(true);
+    const identity = (control: NativeUIControl) => [control.transitionId, ...control.items.map((item) => item.transitionId)];
+    expect(identity(await projectedGroup())).toEqual(identity(native));
+    await activate(page, 'Refresh');
+    await expect(page.locator('ion-title').filter({ hasText: 'Actions:' })).toHaveText('Actions: 1 / 1');
+    await github.evaluate((element: HTMLIonButtonElement) => {
+      element.disabled = true;
+    });
+    await expect.poll(async () => (await projectedGroup())?.items.map((item) => item.disabled)).toEqual([true, true]);
+    expect(identity(await projectedGroup())).toEqual(identity(native));
+    await expect(group).toHaveAttribute('data-native-ui-projected', '');
+    await activate(page, 'GitHub');
+    await activate(page, 'Refresh');
+    await expect(page.locator('ion-title').filter({ hasText: 'Actions:' })).toHaveText('Actions: 1 / 1');
+    await group.evaluate((element) => {
+      element.querySelectorAll<HTMLIonButtonElement>('ion-button').forEach((button) => {
+        button.disabled = false;
+      });
+    });
+    await expect.poll(async () => (await projectedGroup())?.items.map((item) => item.disabled)).toEqual([false, false]);
+    expect(identity(await projectedGroup())).toEqual(identity(native));
+    await activate(page, 'Refresh');
+    await expect(page.locator('ion-title').filter({ hasText: 'Actions:' })).toHaveText('Actions: 1 / 2');
 
-  for (const target of [group, github]) {
-    await target.evaluate((element) => element.classList.add('ios-theme-disabled'));
+    for (const target of [group, github]) {
+      await target.evaluate((element) => element.classList.add('ios-theme-disabled'));
+      await expect(group).not.toHaveAttribute('data-native-ui-projected');
+      await expect(github.locator('button')).toHaveCSS('visibility', 'visible');
+      await target.evaluate((element) => element.classList.remove('ios-theme-disabled'));
+      await expect(group).toHaveAttribute('data-native-ui-projected', '');
+    }
+    await group.evaluate((element) => {
+      element.style.display = 'none';
+    });
+    await expect(group).not.toHaveAttribute('data-native-ui-projected');
+    await expect.poll(projectedGroup).toBeUndefined();
+    await group.evaluate((element) => element.style.removeProperty('display'));
+    await expect(group).toHaveAttribute('data-native-ui-projected', '');
+
+    await refresh.evaluate((element: HTMLIonButtonElement) => {
+      element.fill = 'solid';
+    });
+    await expect(group).not.toHaveAttribute('data-native-ui-projected');
+    await expect(refresh.locator('button')).toHaveCSS('visibility', 'visible');
+    await refresh.evaluate((element: HTMLIonButtonElement) => {
+      element.fill = 'clear';
+    });
+    await expect(group).toHaveAttribute('data-native-ui-projected', '');
+    await refresh.evaluate((element) => element.remove());
     await expect(group).not.toHaveAttribute('data-native-ui-projected');
     await expect(github.locator('button')).toHaveCSS('visibility', 'visible');
-    await target.evaluate((element) => element.classList.remove('ios-theme-disabled'));
-    await expect(group).toHaveAttribute('data-native-ui-projected', '');
-  }
-  await group.evaluate((element) => {
-    element.style.display = 'none';
   });
-  await expect(group).not.toHaveAttribute('data-native-ui-projected');
-  await expect.poll(projectedGroup).toBeUndefined();
-  await group.evaluate((element) => element.style.removeProperty('display'));
-  await expect(group).toHaveAttribute('data-native-ui-projected', '');
-
-  await refresh.evaluate((element: HTMLIonButtonElement) => {
-    element.fill = 'solid';
-  });
-  await expect(group).not.toHaveAttribute('data-native-ui-projected');
-  await expect(refresh.locator('button')).toHaveCSS('visibility', 'visible');
-  await refresh.evaluate((element: HTMLIonButtonElement) => {
-    element.fill = 'clear';
-  });
-  await expect(group).toHaveAttribute('data-native-ui-projected', '');
-  await refresh.evaluate((element) => element.remove());
-  await expect(group).not.toHaveAttribute('data-native-ui-projected');
-  await expect(github.locator('button')).toHaveCSS('visibility', 'visible');
-});
+}
 
 test('theme-disabled ion-buttons project eligible buttons independently', async ({ page }) => {
   await mockNative(page);
@@ -1654,6 +1706,15 @@ test('all demo pages keep projection consistent through consecutive navigation',
   test.setTimeout(240000);
   await page.setViewportSize({ width: 440, height: 956 });
   await mockNative(page);
+  await page.addInitScript(() => {
+    document.addEventListener(
+      'ionViewDidEnter',
+      () => {
+        document.documentElement.dataset.testEnteredPath = location.pathname;
+      },
+      true,
+    );
+  });
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto('/main/index');
@@ -1682,6 +1743,10 @@ test('all demo pages keep projection consistent through consecutive navigation',
           const snapshot = Capacitor.registerPlugin<NativeUIMock>('NativeUI').updates.at(-1)!;
           return (
             status.state !== 'stopped' &&
+            document.documentElement.dataset.testEnteredPath === location.pathname &&
+            Array.from(document.querySelectorAll('ion-router-outlet')).every(
+              (outlet) => outlet.querySelectorAll(':scope > .ion-page:not(.ion-page-hidden)').length <= 1,
+            ) &&
             status.projected ===
               snapshot?.controls.reduce((count: number, control: NativeUIControl) => count + (control.search?.available ? 3 : 1), 0)
           );
@@ -1737,7 +1802,8 @@ test('all demo pages keep projection consistent through consecutive navigation',
   for (let cycle = 0; cycle < 3; cycle++) {
     await page.getByRole('button', { name: 'button', exact: true }).click();
     await expect(page).toHaveURL('/main/index/button');
-    await page.getByRole('button', { name: 'Push', exact: true }).click();
+    await settled();
+    await activate(page, 'Push');
     await expect(page).toHaveURL('/main/index/action-sheet');
     await back();
     await expect(page).toHaveURL('/main/index/button');
@@ -4087,10 +4153,372 @@ test('native rail toggles and teardown preserve application-owned layout', async
       inset: (element as HTMLElement).style.getPropertyValue('--ios-theme-vertical-bars-native-inset'),
     }));
   const expected = { vertical: true, inset: '72px' };
+  await expect.poll(() => app.evaluate((element) => !!(element as TestAppElement).nativeUI)).toBe(true);
   await app.evaluate(async (element) => (element as TestAppElement).nativeUI!.disableVerticalControlArea());
   expect(await layout()).toEqual(expected);
   await app.evaluate(async (element) => (element as TestAppElement).nativeUI!.enableVerticalControlArea());
   expect(await layout()).toEqual(expected);
   await app.evaluate(async (element) => (element as TestAppElement).nativeUI!.destroy());
   expect(await layout()).toEqual(expected);
+});
+
+for (const target of ['native-ui', 'Native UI Extension', 'button-projection', 'accordion']) {
+  test(`Menu and Back retain the leading native slot through navigation: ${target}`, async ({ page }) => {
+    await page.setViewportSize({ width: 402, height: 874 });
+    await mockNative(page, false, null);
+    await page.addInitScript(() => {
+      document.addEventListener('ionViewDidEnter', (event) => (event.target as HTMLElement).setAttribute('data-test-did-enter', ''), true);
+    });
+    await page.goto('/main/index');
+    await expect(page.locator('index-page')).toHaveAttribute('data-test-did-enter', '');
+    const menu = page.locator('index-page ion-buttons[slot=start]');
+    await expect(menu).toHaveAttribute('data-native-ui-projected', '');
+    const before = await page.evaluate(() => {
+      const state = Capacitor.registerPlugin<NativeUIMock>('NativeUI');
+      const control = state.updates.at(-1)!.controls.find((control) => control.kind === 'menu-button')!;
+      return { index: state.updates.length, identity: control.items[0].transitionId, id: control.items[0].id };
+    });
+    await page.evaluate(() => {
+      const evidence = { frames: 0, webCopies: 0, active: true };
+      Object.assign(window, { toolbarEvidence: evidence });
+      const sample = () => {
+        const back = Array.from(document.querySelectorAll<HTMLElement>('ion-back-button:not(.ion-cloned-element)')).find(
+          (element) => !element.closest('.ion-page-hidden, .ion-page-invisible'),
+        );
+        if (back && !back.closest('.ion-page')?.hasAttribute('data-test-did-enter')) {
+          evidence.frames++;
+          const copies = [
+            back,
+            ...document.querySelectorAll<HTMLElement>('ion-router-outlet > ion-back-button.ion-cloned-element'),
+            ...document.querySelectorAll<HTMLElement>('app-native-ui ion-header ion-button[aria-label=Save]'),
+          ];
+          if (
+            copies.some((element) => {
+              for (let current: HTMLElement | null = element; current; current = current.parentElement) {
+                const style = getComputedStyle(current);
+                if (style.display === 'none' || style.visibility !== 'visible' || Number(style.opacity) <= 0.01) return false;
+              }
+              return true;
+            })
+          )
+            evidence.webCopies++;
+        }
+        if (evidence.active) requestAnimationFrame(sample);
+      };
+      requestAnimationFrame(sample);
+    });
+    await page.getByText(target, { exact: true }).click();
+    const back = page.locator('.ion-page:not(.ion-page-hidden) ion-back-button:not(.ion-cloned-element)').last();
+    await expect.poll(() => back.evaluate((element) => element.closest('.ion-page')?.hasAttribute('data-test-did-enter'))).toBe(true);
+    await expect(back).toHaveAttribute('data-native-ui-projected', '');
+    const after = await page.evaluate(({ index, identity }) => {
+      const state = Capacitor.registerPlugin<NativeUIMock>('NativeUI');
+      const changes = state.updates.slice(index);
+      const control = changes.at(-1)!.controls.find((control) => control.kind === 'back-button')!;
+      return {
+        identity: control.items[0].transitionId,
+        id: control.items[0].id,
+        gaps: changes.filter(
+          (snapshot) => !snapshot.controls.some((control) => control.items.some((item) => item.transitionId === identity)),
+        ).length,
+        label: control.items[0].accessibilityLabel,
+      };
+    }, before);
+    if (target === 'native-ui') {
+      const right = await page.evaluate((index) => {
+        const snapshots = Capacitor.registerPlugin<NativeUIMock>('NativeUI').updates.slice(index);
+        for (const snapshot of snapshots) {
+          const save = snapshot.toolbarTransition?.destination.find((control) =>
+            control.items.some((item) => item.accessibilityLabel === 'Save'),
+          );
+          if (save)
+            return {
+              target: save,
+              source: snapshot.controls.find((control) => control.transitionId === save.transitionId),
+              cancel: snapshot.toolbarTransition!.destination.find((control) => control.items.some((item) => item.label === 'Cancel')),
+            };
+        }
+        return null;
+      }, before.index);
+      expect(right).not.toBeNull();
+      expect(right!.source!.kind).toBe('button-group');
+      expect(right!.target.kind).toBe('button');
+      expect(right!.target.items[0].accessibilityLabel).toBe('Save');
+      expect(right!.cancel).toBeDefined();
+      expect(right!.cancel!.transitionId).not.toBe(right!.source!.transitionId);
+    }
+    expect(after.identity).toBe(before.identity);
+    expect(after.id).not.toBe(before.id);
+    expect(after.gaps).toBe(0);
+    const evidence = await page.evaluate(() => {
+      const evidence = (window as Window & { toolbarEvidence: { frames: number; webCopies: number; active: boolean } }).toolbarEvidence;
+      evidence.active = false;
+      return evidence;
+    });
+    expect(evidence.frames).toBeGreaterThan(0);
+    expect(evidence.webCopies).toBe(0);
+    await activate(page, after.label!);
+    await expect(menu).toHaveAttribute('data-native-ui-projected', '');
+    await expect(page).toHaveURL(/\/main\/index$/);
+  });
+}
+
+test('toolbar follows paused page percentages and reverses before navigation completes', async ({ page }) => {
+  await page.setViewportSize({ width: 402, height: 874 });
+  await mockNative(page, false, null);
+  await page.addInitScript(() => {
+    document.addEventListener('ionViewDidEnter', (event) => (event.target as HTMLElement).setAttribute('data-test-did-enter', ''), true);
+  });
+  await page.goto('/main/index');
+  await expect(page.locator('index-page')).toHaveAttribute('data-test-did-enter', '');
+  await expect(page.locator('index-page ion-buttons[slot=start]')).toHaveAttribute('data-native-ui-projected', '');
+  const sourceGroup = page.locator('index-page ion-header:not([collapse]) ion-buttons[slot=end]');
+  await expect(sourceGroup).toHaveAttribute('data-native-ui-projected', '');
+  const sourceGroupId = await page.evaluate(
+    () =>
+      Capacitor.registerPlugin<NativeUIMock>('NativeUI')
+        .updates.at(-1)!
+        .controls.find((control) => control.kind === 'button-group' && control.items.some((item) => item.accessibilityLabel === 'GitHub'))!
+        .id,
+  );
+  await page.getByText('native-ui', { exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => Capacitor.registerPlugin<NativeUIMock>('NativeUI').updates.at(-1)?.toolbarTransition?.id))
+    .toBeGreaterThan(0);
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() =>
+          document
+            .getAnimations()
+            .some((animation) => animation.playState === 'running' && Number(animation.effect?.getTiming().duration) > 0),
+        ),
+      { intervals: [10, 20, 50] },
+    )
+    .toBe(true);
+  for (const percentage of [0, 0.2, 0.4, 0.6, 0.8, 0.4, 0.2]) {
+    const expected = await page.evaluate((percentage) => {
+      const animations = document.getAnimations().filter((animation) => Number(animation.effect?.getTiming().duration) > 0);
+      animations.forEach((animation) => {
+        animation.pause();
+        animation.currentTime = Number(animation.effect!.getTiming().duration) * percentage;
+      });
+      return animations[0].effect!.getComputedTiming().progress!;
+    }, percentage);
+    await expect
+      .poll(() => page.evaluate(() => Capacitor.registerPlugin<NativeUIMock>('NativeUI').toolbarProgress.at(-1)?.progress))
+      .toBeCloseTo(expected, 3);
+    const prepared = await page.evaluate(() => Capacitor.registerPlugin<NativeUIMock>('NativeUI').updates.at(-1)!.toolbarTransition);
+    expect(prepared?.destination.some((control) => control.kind === 'back-button')).toBe(true);
+    // end[0] remains native as group -> Save; Cancel occupies the new end[1].
+    expect(prepared?.sourceIds).toContain(sourceGroupId);
+    await expect(sourceGroup).toHaveAttribute('data-native-ui-projected', '');
+    await expect(sourceGroup).not.toHaveAttribute('data-native-ui-navigation-source');
+    if (percentage > 0) expect(expected).toBeGreaterThan(0);
+    expect(expected).toBeLessThan(1);
+  }
+  await page.evaluate(() => document.getAnimations().forEach((animation) => animation.play()));
+  await expect(page.locator('app-native-ui ion-back-button')).toHaveAttribute('data-native-ui-projected', '');
+  await expect
+    .poll(() => page.evaluate(() => Capacitor.registerPlugin<NativeUIMock>('NativeUI').updates.at(-1)!.toolbarTransition))
+    .toBeUndefined();
+});
+
+test('implicit clear toolbar buttons share glass without duplicate native children', async ({ page }) => {
+  await mockNative(page, false, null);
+  await page.goto('/main/index');
+  const group = page.locator('index-page ion-header:not([collapse]) ion-buttons[slot=end]');
+  await expect(group).toHaveAttribute('data-native-ui-projected', '');
+  await expect(group.locator('[data-native-ui-projected]')).toHaveCount(0);
+  expect(
+    await group.locator('ion-button').evaluateAll((buttons) => buttons.map((button) => (button as HTMLIonButtonElement).fill)),
+  ).toEqual([undefined, undefined]);
+  const controls = await page.evaluate(() =>
+    Capacitor.registerPlugin<NativeUIMock>('NativeUI')
+      .updates.at(-1)!
+      .controls.filter((control) =>
+        control.items.some((item) => item.accessibilityLabel === 'GitHub' || item.accessibilityLabel === 'Ionic'),
+      ),
+  );
+  expect(controls).toHaveLength(1);
+  expect(controls[0].kind).toBe('button-group');
+  expect(controls[0].items.map((item) => item.accessibilityLabel)).toEqual(['GitHub', 'Ionic']);
+});
+
+test('clear Cancel keeps its clear presentation beside a glass Save button', async ({ page }) => {
+  await mockNative(page, false, null);
+  await page.goto('/main/index/native-ui');
+  await expect(page.locator('app-native-ui ion-button').filter({ hasText: 'Cancel' })).toHaveAttribute('data-native-ui-projected', '');
+  const items = await page.evaluate(() =>
+    Capacitor.registerPlugin<NativeUIMock>('NativeUI')
+      .updates.at(-1)!
+      .controls.flatMap((control) => control.items),
+  );
+  expect(items.find((item) => item.label === 'Cancel')?.buttonFill).toBe('clear');
+  expect(items.find((item) => item.accessibilityLabel === 'Save')?.buttonFill).toBeUndefined();
+});
+
+test('mini player does not shorten the page and outgoing translucent toolbar fades during navigation', async ({ page }) => {
+  await page.setViewportSize({ width: 402, height: 874 });
+  await mockNative(page, false, null);
+  await page.addInitScript(() =>
+    document.addEventListener('ionViewDidEnter', (event) => (event.target as HTMLElement).setAttribute('data-test-did-enter', ''), true),
+  );
+  await page.goto('/main/index');
+  await expect(page.locator('index-page')).toHaveAttribute('data-test-did-enter', '');
+  await page.getByText('Native UI Extension', { exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => Capacitor.registerPlugin<NativeUIMock>('NativeUI').updates.at(-1)?.toolbarTransition?.id))
+    .toBeGreaterThan(0);
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() =>
+          document
+            .getAnimations()
+            .some((animation) => animation.playState === 'running' && Number(animation.effect?.getTiming().duration) > 0),
+        ),
+      { intervals: [10, 20, 50] },
+    )
+    .toBe(true);
+  for (const percentage of [0.1, 0.2, 0.4, 0.6, 0.8, 0.4, 0.2, 0]) {
+    await page.evaluate(
+      (percentage) =>
+        document.getAnimations().forEach((animation) => {
+          animation.pause();
+          animation.currentTime = Number(animation.effect!.getTiming().duration) * percentage;
+        }),
+      percentage,
+    );
+    const geometry = await page.evaluate(() => {
+      const page = document.querySelector('index-page')!;
+      const buttons = page.querySelector('ion-header:not([collapse]) ion-buttons[slot=end]')!;
+      return {
+        bottom: page.getBoundingClientRect().bottom,
+        viewport: innerHeight,
+        opacity: Number(getComputedStyle(buttons).opacity),
+        backing: getComputedStyle(page.parentElement!).backgroundColor,
+      };
+    });
+    expect(geometry.bottom).toBeGreaterThanOrEqual(geometry.viewport - 1);
+    expect(geometry.backing).not.toBe('rgba(0, 0, 0, 0)');
+    if (percentage === 0) expect(geometry.opacity).toBe(1);
+    else expect(geometry.opacity).toBeLessThan(0.9);
+    if (percentage >= 0.2) expect(geometry.opacity).toBe(0);
+    await expect(page.locator('index-page ion-header:not([collapse]) ion-buttons[slot=end]')).toHaveAttribute(
+      'data-native-ui-projected',
+      '',
+    );
+  }
+  await page.evaluate(() => document.getAnimations().forEach((animation) => animation.play()));
+  await expect(page.locator('app-native-ui-extension-page')).toHaveAttribute('data-test-did-enter', '');
+  expect(await page.locator('index-page').evaluate((page) => (page.parentElement as HTMLElement).style.backgroundColor)).toBe('');
+});
+
+test('a shared toolbar background shrinks to one button and expands on return without Web handoff', async ({ page }) => {
+  await page.setViewportSize({ width: 402, height: 874 });
+  await mockNative(page, false, null);
+  await page.addInitScript(() =>
+    document.addEventListener(
+      'ionViewWillEnter',
+      (event) => {
+        const entering = event.target as HTMLElement;
+        if (entering.tagName.toLowerCase() === 'app-native-ui') {
+          Array.from(entering.querySelectorAll('ion-toolbar ion-buttons[slot=end] ion-button'))
+            .find((button) => button.textContent?.trim() === 'Cancel')
+            ?.remove();
+        }
+      },
+      true,
+    ),
+  );
+  await page.goto('/main/index');
+  await expect(page.locator('index-page ion-buttons[slot=end]')).toHaveAttribute('data-native-ui-projected', '');
+  await page.getByText('native-ui', { exact: true }).click();
+  await expect(page.locator('app-native-ui ion-toolbar ion-button').filter({ hasText: 'Save' })).toHaveAttribute(
+    'data-native-ui-projected',
+    '',
+  );
+  const push = await page.evaluate(() =>
+    Capacitor.registerPlugin<NativeUIMock>('NativeUI').updates.find((snapshot) =>
+      snapshot.toolbarTransition?.destination.some((control) => control.items.some((item) => item.accessibilityLabel === 'Save')),
+    ),
+  );
+  expect(push).toBeDefined();
+  const destination = push!.toolbarTransition!.destination.find((control) =>
+    control.items.some((item) => item.accessibilityLabel === 'Save'),
+  )!;
+  const source = push!.controls.find((control) => control.transitionId === destination.transitionId)!;
+  expect(source.kind).toBe('button-group');
+  expect(source.items).toHaveLength(2);
+  expect(destination.kind).toBe('button');
+  expect(destination.items).toHaveLength(1);
+  await activate(page, 'Save');
+  await expect(page.getByText('Save count: 1', { exact: true })).toBeVisible();
+  const index = await page.evaluate(() => Capacitor.registerPlugin<NativeUIMock>('NativeUI').updates.length);
+  await activate(page, 'back');
+  await expect(page).toHaveURL(/\/main\/index$/);
+  await expect(page.locator('index-page ion-buttons[slot=end]')).toHaveAttribute('data-native-ui-projected', '');
+  const pop = await page.evaluate(
+    (index) =>
+      Capacitor.registerPlugin<NativeUIMock>('NativeUI')
+        .updates.slice(index)
+        .find((snapshot) => snapshot.toolbarTransition?.destination.some((control) => control.kind === 'button-group')),
+    index,
+  );
+  expect(pop).toBeDefined();
+  const group = pop!.toolbarTransition!.destination.find((control) => control.kind === 'button-group')!;
+  expect(pop!.controls.find((control) => control.transitionId === group.transitionId)!.kind).toBe('button');
+  expect(group.items).toHaveLength(2);
+});
+
+test('vertical group resizing preserves the following surface and its action identity', async ({ page }) => {
+  await page.setViewportSize({ width: 466, height: 678 });
+  await mockNative(page);
+  await page.goto('/main/index');
+  await page.locator('index-page > ion-header ion-buttons[slot=end]').evaluate((group) => {
+    const next = document.createElement('ion-buttons');
+    next.slot = 'end';
+    next.id = 'following-group';
+    next.innerHTML = '<ion-button><ion-icon name="heart" slot="icon-only" aria-label="Following"></ion-icon></ion-button>';
+    const button = next.querySelector('ion-button')!;
+    button.removeAttribute('href');
+    button.setAttribute('aria-label', 'Following');
+    button.addEventListener('click', () => next.setAttribute('data-clicked', 'true'));
+    group.after(next);
+  });
+  await page.getByText('iPhone Duo Mode', { exact: true }).click();
+  const read = () =>
+    page.evaluate(() => {
+      const controls = Capacitor.registerPlugin<NativeUIMock>('NativeUI').updates.at(-1)!.controls;
+      const next = controls.find((control) => control.items.some((item) => item.accessibilityLabel === 'Following'))!;
+      const first = controls.find((control) => control.items.some((item) => item.accessibilityLabel === 'GitHub'))!;
+      return { surface: next?.transitionId, child: next?.items[0].transitionId, count: first?.items.length, placement: next?.placement };
+    });
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        Capacitor.registerPlugin<NativeUIMock>('NativeUI')
+          .updates.at(-1)
+          ?.controls.some(
+            (control) => control.placement === 'vertical-bars' && control.items.some((item) => item.accessibilityLabel === 'Following'),
+          ),
+      ),
+    )
+    .toBe(true);
+  const before = await read();
+  expect(before.placement).toBe('vertical-bars');
+  expect(before.count).toBe(2);
+  await page
+    .locator('index-page > ion-header ion-buttons[slot=end]')
+    .first()
+    .locator('ion-button')
+    .last()
+    .evaluate((button) => button.remove());
+  await expect.poll(async () => (await read()).count).toBe(1);
+  const after = await read();
+  expect(after.surface).toBe(before.surface);
+  expect(after.child).toBe(before.child);
+  await activate(page, 'Following');
+  await expect(page.locator('#following-group')).toHaveAttribute('data-clicked', 'true');
 });

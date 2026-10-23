@@ -10,7 +10,7 @@ import type { Animation } from '@ionic/core';
 import { configureNativeTransition, enableNativeUI } from '../../packages/capacitor-native-ui/src/native';
 import { iosTransitionAnimation } from '../../packages/theme-ios27/src/transition/ios.transition';
 
-const fixture = () => {
+const fixture = (trackProgress = false) => {
   const doc = {} as Document;
   const page = { ownerDocument: doc } as HTMLElement;
   const calls: string[] = [];
@@ -22,7 +22,9 @@ const fixture = () => {
   setNativeUIIntegration(doc, {
     suspend: async () => {
       await pending;
-      return (canceled = false) => calls.push(`resume:${canceled}`);
+      return Object.assign((canceled = false) => calls.push(`resume:${canceled}`), {
+        progress: trackProgress ? (value: number) => calls.push(`native:${value}`) : undefined,
+      });
     },
   });
   const animation = {
@@ -139,7 +141,7 @@ test('connecting before runtime startup does not prevent later native integratio
     destroy: vi.fn(),
   } as unknown as Animation;
   const wrapped = withNativeUITransition(() => animation);
-  const options = { enteringEl: entering, leavingEl: leaving };
+  const options = { enteringEl: entering, leavingEl: leaving, direction: 'back' as const };
   wrapped(entering, options);
   const play = animation.play;
   expect(animation.onFinish).toHaveBeenCalledTimes(1);
@@ -152,7 +154,7 @@ test('connecting before runtime startup does not prevent later native integratio
     expect(animation.onFinish).toHaveBeenCalledTimes(2);
     expect(animation.play).not.toBe(play);
     await animation.play();
-    expect(suspend).toHaveBeenCalledExactlyOnceWith([entering, leaving]);
+    expect(suspend).toHaveBeenCalledExactlyOnceWith([entering, leaving], { navigation: true, direction: 'back' });
     expect(resume).toHaveBeenCalledExactlyOnceWith(false);
   } finally {
     animation.destroy();
@@ -184,7 +186,7 @@ test('the built-in iOS transition uses the adapter once even when wrapped again'
   expect(animation.getDuration()).toBe(123);
   expect(animation.getEasing()).toBe('linear');
   const played = animation.play();
-  expect(suspend).toHaveBeenCalledExactlyOnceWith([entering, leaving]);
+  expect(suspend).toHaveBeenCalledExactlyOnceWith([entering, leaving], { navigation: true });
   animation.destroy();
   ready();
   await played;
@@ -241,4 +243,44 @@ test('re-registering a cached search footer replaces its binding without waiting
   }
   const second = registerNativeSearch(tabBar, trigger, {} as HTMLElement);
   expect(getNativeSearchBindings(doc)).toEqual([retained.at(-1), second]);
+});
+
+test('interactive page progress reaches the native toolbar before completion and reverses on cancellation', async () => {
+  const { animation, calls, ready, finish } = fixture(true);
+  animation.progressStart(true);
+  animation.progressStep(0.2);
+  ready();
+  await expect.poll(() => calls).toEqual(['start', 'step:0.2', 'native:0.2']);
+  animation.progressStep(0.6);
+  animation.progressStep(0.4);
+  expect(calls.slice(-4)).toEqual(['step:0.6', 'native:0.6', 'step:0.4', 'native:0.4']);
+  finish(0);
+  expect(calls.slice(-2)).toEqual(['native:0', 'resume:true']);
+});
+
+test('only interactive playback asks the vertical toolbar to wait for navigation to settle', async () => {
+  const doc = document.implementation.createHTMLDocument();
+  const entering = doc.createElement('main'),
+    leaving = doc.createElement('main');
+  const resume = Object.assign(vi.fn(), { finishGesture: vi.fn() });
+  const suspend = vi.fn(async () => resume);
+  setNativeUIIntegration(doc, { suspend });
+  const animation = {
+    onFinish: vi.fn(),
+    play: vi.fn(async () => {}),
+    progressStart: vi.fn(),
+    progressStep: vi.fn(),
+    progressEnd: vi.fn(),
+    destroy: vi.fn(),
+  } as unknown as Animation;
+  connectNativeUITransition(animation, entering, leaving, 'back');
+  animation.progressStart(true);
+  animation.progressEnd(1, 0.8, 100);
+  await vi.waitFor(() =>
+    expect(suspend).toHaveBeenCalledExactlyOnceWith([entering, leaving], { navigation: true, direction: 'back', interactive: true }),
+  );
+  await vi.waitFor(() => expect(resume.finishGesture).toHaveBeenCalledExactlyOnceWith(true));
+  animation.destroy();
+  await vi.waitFor(() => expect(resume).toHaveBeenCalledWith(true));
+  setNativeUIIntegration(doc);
 });

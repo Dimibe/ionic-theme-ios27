@@ -138,6 +138,8 @@ export interface NativeUIBadge {
 
 export interface NativeUIItem extends Frame {
   id: string;
+  /** Toolbar presentation identity; never used to dispatch an action. */
+  transitionId?: string;
   label: string;
   accessibilityLabel: string;
   disabled: boolean;
@@ -178,6 +180,8 @@ export type NativeUIControlKind =
 
 export interface NativeUIControl extends Frame {
   id: string;
+  /** Stable toolbar group identity, independent of the source control ID. */
+  transitionId?: string;
   kind: NativeUIControlKind | 'extension';
   extension?: { name: string; props: string; actions: Record<string, string>; tabBarId?: string };
   /** Lets the native host own adaptive placement instead of mirroring the DOM frame. */
@@ -216,11 +220,17 @@ export interface NativeUISearchEvent extends NativeUIActivation {
 export interface NativeUISnapshot {
   revision: number;
   transitionDuration?: number;
+  /** Prepared native toolbar endpoints, controlled by the page animation clock. */
+  toolbarTransition?: { id: number; sourceIds: string[]; destination: NativeUIControl[] };
   viewportWidth: number;
   /** Physical side the native rail is drawn on; the runtime resolves the logical edge through the document direction. */
   verticalBarEdge?: 'left' | 'right';
   /** Visible foreground modal bounds; omitted for the full page. */
   verticalBarFrame?: Frame;
+  /** Web-owned page identities, from root through the active rail destination. */
+  verticalBarNavigation?: string[];
+  /** Keep the current native rail until an interactive navigation settles. */
+  verticalBarNavigationPhase?: 'tracking' | 'settling';
   controls: NativeUIControl[];
 }
 
@@ -249,7 +259,10 @@ export interface NativeUIPlugin {
   dismissOverlay(options: { id: string; animated: boolean }): Promise<void>;
   closeOverlay(options: { id: string }): Promise<void>;
   stopOverlays(): Promise<void>;
-  update(snapshot: NativeUISnapshot): Promise<{ revision: number; rejectedSearches?: string[]; rejectedControls?: string[] }>;
+  update(
+    snapshot: NativeUISnapshot,
+  ): Promise<{ revision: number; rejectedSearches?: string[]; rejectedControls?: string[]; toolbarTransition?: number }>;
+  setToolbarTransitionProgress(options: { id: number; progress: number }): Promise<void>;
   clear(options: { revision: number }): Promise<void>;
   addListener(name: 'activate', listener: (event: NativeUIActivation) => void): Promise<PluginListenerHandle>;
   addListener(name: 'search', listener: (event: NativeUISearchEvent) => void): Promise<PluginListenerHandle>;

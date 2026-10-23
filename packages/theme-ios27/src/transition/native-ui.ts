@@ -1,3 +1,4 @@
+import type { NativeUITransitionRelease } from '@rdlabo/capacitor-native-ui/integration';
 import type { Animation } from '@ionic/core/components';
 import { hasNativeUIIntegration, suspendNativeUI, VERTICAL_BARS_TRANSITION_CANCELED } from '@rdlabo/capacitor-native-ui/integration';
 import type { AnimationBuilder } from '@ionic/core/components';
@@ -11,7 +12,7 @@ export const withNativeUITransition =
   (builder: AnimationBuilder): AnimationBuilder =>
   (baseEl, opts) => {
     const animation = builder(baseEl, opts);
-    if (opts?.enteringEl) connectNativeUITransition(animation, opts.enteringEl, opts.leavingEl);
+    if (opts?.enteringEl) connectNativeUITransition(animation, opts.enteringEl, opts.leavingEl, opts.direction);
     return animation;
   };
 
@@ -19,7 +20,12 @@ const connectedTransitions = new WeakSet<Animation>();
 const cancellationTransitions = new WeakSet<Animation>();
 
 /** Ionic write hooks cannot await the bridge. Gate playback, including interactive playback. */
-export const connectNativeUITransition = (animation: Animation, entering: HTMLElement, leaving?: HTMLElement) => {
+export const connectNativeUITransition = (
+  animation: Animation,
+  entering: HTMLElement,
+  leaving?: HTMLElement,
+  direction?: 'forward' | 'back' | 'root',
+) => {
   if (leaving && !cancellationTransitions.has(animation)) {
     cancellationTransitions.add(animation);
     animation.onFinish((step) => {
@@ -34,18 +40,42 @@ export const connectNativeUITransition = (animation: Animation, entering: HTMLEl
   const progressStep = animation.progressStep.bind(animation);
   const progressEnd = animation.progressEnd.bind(animation);
   const destroy = animation.destroy.bind(animation);
-  let release: ((canceled?: boolean) => void) | undefined;
+  let release: NativeUITransitionRelease | undefined;
+  let frame = 0;
+  const win = entering.ownerDocument.defaultView;
+  const webAnimations = (value: Animation): globalThis.Animation[] => [
+    ...value.getWebAnimations(),
+    ...value.childAnimations.flatMap(webAnimations),
+  ];
+  const track = () => {
+    if (!release?.progress || !win) return;
+    const sample = () => {
+      const progress = webAnimations(animation)
+        .map((value) => value.effect?.getComputedTiming().progress)
+        .find((value) => value != null);
+      if (progress != null) release?.progress?.(progress);
+      frame = win.requestAnimationFrame(sample);
+    };
+    frame = win.requestAnimationFrame(sample);
+  };
   let preparation: Promise<void> | undefined;
   let disposed = false;
   let interactiveReady = false;
   let step: number | undefined;
   let end: Parameters<Animation['progressEnd']> | undefined;
-  const prepare = () =>
-    (preparation ??= suspendNativeUI(scopes).then((resume) => {
+  const prepare = (interactive = false) =>
+    (preparation ??= suspendNativeUI(scopes, {
+      navigation: true,
+      ...(direction ? { direction } : {}),
+      ...(interactive ? { interactive: true } : {}),
+    }).then((resume) => {
       if (disposed) resume(true);
       else release = resume;
     }));
   const finish = (canceled = false) => {
+    if (frame) win?.cancelAnimationFrame(frame);
+    frame = 0;
+    release?.progress?.(canceled ? 0 : 1);
     release?.(canceled);
     release = undefined;
     preparation = undefined;
@@ -55,7 +85,9 @@ export const connectNativeUITransition = (animation: Animation, entering: HTMLEl
     await prepare();
     if (disposed) return;
     try {
-      await play(options);
+      const playing = play(options);
+      track();
+      await playing;
     } finally {
       finish();
     }
@@ -64,23 +96,36 @@ export const connectNativeUITransition = (animation: Animation, entering: HTMLEl
     interactiveReady = false;
     step = undefined;
     end = undefined;
-    void prepare().then(() => {
+    void prepare(true).then(() => {
       if (disposed) return;
       progressStart(...args);
+      track();
       interactiveReady = true;
-      if (step !== undefined) progressStep(step);
-      if (end) progressEnd(...end);
+      if (step !== undefined) {
+        progressStep(step);
+        release?.progress?.(step);
+      }
+      if (end) {
+        release?.finishGesture?.(end[0] === 1);
+        progressEnd(...end);
+      }
     });
     return animation;
   };
   animation.progressStep = (value) => {
     step = value;
-    if (interactiveReady) progressStep(value);
+    if (interactiveReady) {
+      progressStep(value);
+      release?.progress?.(value);
+    }
     return animation;
   };
   animation.progressEnd = (...args) => {
     end = args;
-    if (interactiveReady) progressEnd(...args);
+    if (interactiveReady) {
+      release?.finishGesture?.(args[0] === 1);
+      progressEnd(...args);
+    }
     return animation;
   };
   animation.destroy = (...args) => {

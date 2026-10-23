@@ -70,9 +70,9 @@ export const verticalBarsEnteringPage = (element: HTMLElement): HTMLElement | un
 export const createVerticalBarsPageState = () => {
   const departed = new WeakSet<HTMLElement>();
   return {
-    isDeparted(element: HTMLElement): boolean {
+    isDeparted(element: HTMLElement, includeHorizontal = false): boolean {
       const page = element.closest<HTMLElement>('.ion-page');
-      return !!page && departed.has(page) && !!element.closest('ion-app.ios-theme-vertical-bars');
+      return !!page && departed.has(page) && (includeHorizontal || !!element.closest('ion-app.ios-theme-vertical-bars'));
     },
     lifecycle(event: Event): void {
       // Avoid instanceof so stale listeners stay safe after global teardown.
@@ -299,6 +299,6 @@ export const inFixedToolbar = (element: Element): boolean => {
     !!edge?.matches('ion-header, ion-footer') &&
     !element.closest('ion-content') &&
     !edge.hasAttribute('collapse') &&
-    (verticalBars || !edge.matches('.header-collapse-main, .header-collapse-condense'))
+    (verticalBars || !edge.matches('.header-collapse-condense'))
   );
 };

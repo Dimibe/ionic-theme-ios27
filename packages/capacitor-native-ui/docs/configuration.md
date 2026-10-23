@@ -82,6 +82,29 @@ Horizontal and vertical describe **control placement**, not screen orientation o
 
 Local `data-horizontal-bars="true|false"` and `data-vertical-bars="true|false"` override the matching selection default. On `ion-buttons` they control grouping only. Explicit `data-native-ui` sources are independent of these defaults. Structural exclusions and rail availability still apply. See [toolbar selection and grouping](native-ui.md#toolbar-selection-and-grouping).
 
+### Toolbar button correspondence
+
+Native toolbar buttons receive presentation identities automatically. Ordinary buttons correspond by their toolbar, logical slot and order among projected buttons. Menu and Back buttons at the leading position correspond in both horizontal and vertical bars. Changing the layout axis preserves presentation identities and group order. Each surface has its own child positions, so adding or removing buttons inside one group does not change the identities of later surfaces or their buttons. Labels and click handlers may change without requiring an ID attribute. Header and footer toolbars are separate scopes.
+
+Optionally set `data-transition-id` on an individual button when it should follow a particular action through a reorder within its corresponding surface:
+
+```html
+<!-- Source page -->
+<ion-button data-transition-id="edit">Edit</ion-button>
+<!-- Destination page -->
+<ion-button data-transition-id="edit">Done</ion-button>
+```
+
+An explicit key overrides the automatic position within the corresponding toolbar. It does not change HTML `id`, routing or click delivery. Keep the original handler on each page's source button. Blank values use automatic correspondence; duplicate explicit keys within a toolbar are treated as separate, unmatched sources. Put the attribute on each button, including children of an `ion-buttons` group. Child keys match within a corresponding surface; they do not move an action between different groups. To preserve a whole group through a reorder, also give its `ion-buttons` element a surface key. The group key identifies the shared background and child keys identify its buttons, even when only one child remains.
+
+These identities drive the native SwiftUI Vertical Bars toolbar. With the theme's navigation animation adapter, corresponding horizontal fixed toolbar surfaces remain native and follow the Ionic page animation's progress, including interactive reversal. Geometry and content change during playback; action ownership changes only after navigation commits. A canceled swipe restores the original toolbar. Retained horizontal toolbar actions are ignored until navigation and the destination update finish.
+
+Outgoing controls without corresponding surface identities remain native and fade out in place with page progress; cancellation reverses the fade. This opacity animation does not reproduce the system navigation bar’s blur effect. New destination controls are prepared natively before playback and grow into place, retaining the same native view when navigation completes. Single buttons and groups use the same numbered positions within each toolbar slot, counting from the logical outer edge: start from inline-start and end from inline-end. Group children follow the same rule. In LTR this means start from the left and end from the right; RTL mirrors those edges. A group at end position 0 can become a single button at end position 0; changing its child count or fill does not break correspondence or renumber the following surface. The background resizes while added or removed buttons grow or shrink. An optional `data-transition-id` on a surface overrides its positional identity. Moving page content, explicit runtime suspension, unsupported controls, native rejection and overlay fallback also use Web presentation. Ionic clear buttons inside `ion-buttons` share one glass surface, including buttons whose omitted `fill` resolves to clear.
+
+Progress updates use an optional capability acknowledged by the native plugin. Older native binaries that do not acknowledge it are not sent the new bridge method: outgoing toolbar surfaces, including unmatched ones, stay visible until the completion-time handoff. Older transition adapters keep their existing behavior. Updating both the theme and native plugin enables progress synchronization.
+
+Vertical Bars mirror the Web page hierarchy in a SwiftUI `NavigationStack` to use its standard push/pop toolbar animations. Web routing and each source button still determine navigation and actions; the native stack does not introduce another navigation history. Canceled navigation restores the previous path, and tab and modal pages retain their own ancestry. During an interactive swipe, Vertical Bars keep the source toolbar while the finger is down, matching the native vertical toolbar behavior. A canceled swipe leaves it unchanged. When the finger lifts and the gesture commits, the standard toolbar transition starts alongside the Web page settling into place. The projected Web toolbar sources remain hidden and native rail input is suspended until the swipe settles. Horizontal toolbars instead follow the page animation progress frame by frame. Automatic positional identities request correspondence by position, so use an explicit key when an action should follow a reorder instead.
+
 ### Other settings
 
 | Setting                                | Default         | Meaning                                                                                                                                                     |

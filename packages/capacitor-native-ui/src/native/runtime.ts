@@ -1,3 +1,6 @@
+import { createVerticalNavigation } from './shared/vertical-navigation';
+import { createHorizontalNavigation, horizontalToolbar, navigationMarker } from './shared/horizontal-navigation';
+import { assignToolbarTransitionIds } from './shared/transition-identity';
 import { controlSelected } from './shared/control-options';
 import { createDiagnostics } from './shared/diagnostics';
 import { htmlSelector, readHTMLControl } from './html';
@@ -14,6 +17,7 @@ import { projectionIds } from './shared/projection-id';
 import { inVerticalBarsSurface, topModal, modalUsesVerticalBars, modalVerticalBarFrame } from './shared/modal';
 import type { PluginListenerHandle } from '@capacitor/core';
 import { LIFECYCLE_WILL_ENTER, LIFECYCLE_WILL_LEAVE, LIFECYCLE_DID_ENTER, LIFECYCLE_DID_LEAVE } from './shared/events';
+import type { NativeUITransitionRelease } from '../native-integration';
 import { VERTICAL_BARS_TRANSITION_CANCELED, getNativeSearchBindings, setNativeUIIntegration } from '../native-integration';
 import { createSearchSupport } from './components/searchable-tabs';
 import type {
@@ -27,6 +31,7 @@ import type {
 import { readCandidate, selector, shadowSelector, motionSelector, isVerticalBarsCandidate } from './components';
 import {
   activateProjectedElement,
+  inFixedToolbar,
   createVerticalBarsPageState,
   isVerticalBarsSource,
   preferredVerticalBarsBack,
@@ -78,6 +83,10 @@ export const createRuntime = async (
   const verticalBarsOwners = new Set<HTMLElement>();
   const verticalBarsMembers = new Set<HTMLElement>();
   const suspended = new Set<HTMLElement[]>();
+  const navigation = createHorizontalNavigation();
+  const verticalNavigation = createVerticalNavigation();
+  let verticalGesture: { pending: boolean; scopes: HTMLElement[]; sources: Set<HTMLElement> } | undefined;
+  let acknowledged: Candidate[] = [];
   const pages = new Set<HTMLElement>();
   const verticalBarsPages = createVerticalBarsPageState();
   const presented = new Set<HTMLElement>();
@@ -117,7 +126,7 @@ export const createRuntime = async (
   let reason: string | undefined;
   let listener: PluginListenerHandle | undefined;
   let searchListener: PluginListenerHandle | undefined;
-  let waiters: (() => void)[] = [];
+  let waiters: { resolve: () => void; transition?: NonNullable<typeof navigation.current> }[] = [];
   const controlEnabled = (candidate: Candidate) => {
     const kind = candidate.control.kind;
     // Button readers apply selection/grouping per child; explicit HTML and extensions
@@ -135,9 +144,13 @@ export const createRuntime = async (
     return value;
   };
   const style = doc.createElement('style');
-  const hidden = `[${marker}]:not([${fadeMarker}])`;
+  const hidden = `:is([${marker}]:not([${fadeMarker}]), [${navigationMarker}])`;
   style.textContent = `${hidden}, ${hidden} *, ${hidden}::before, ${hidden}::after, ${hidden}::part(native) { visibility: hidden !important; }
-    [${marker}], [${marker}] * { pointer-events: none !important; }
+    [${marker}], [${marker}] *, [${navigationMarker}], [${navigationMarker}] * { pointer-events: none !important; }
+    /* The theme's fixed Back clone must not reintroduce a Web button while
+       navigation keeps its source under native ownership. */
+    :is(ion-nav, ion-router-outlet):has(.ion-page:not(.ion-page-hidden) ion-back-button:is([${marker}], [${navigationMarker}]))
+      > ion-back-button.ion-cloned-element { visibility: hidden !important; }
     /* Ionic disables the covered page while a menu is open. VerticalBars rail
        controls remain outside that page; zero specificity preserves any
        pointer-events rule supplied by the application itself. */
@@ -148,11 +161,12 @@ export const createRuntime = async (
       pointer-events: none;
     }`;
 
-  const restore = (element: HTMLElement) => {
+  const restore = (element: HTMLElement, instant = false) => {
     lastSnapshot = '';
     search.release(element);
     element.removeAttribute(marker);
-    if (!stopped) crossfade.play(element, false, handoffInstant || (isVerticalBarsSource(element) && !element.matches('ion-tab-bar')));
+    if (!stopped)
+      crossfade.play(element, false, instant || handoffInstant || (isVerticalBarsSource(element) && !element.matches('ion-tab-bar')));
     if (element.getAttribute('aria-hidden') === 'true') {
       const previous = sources.get(element);
       if (previous == null) element.removeAttribute('aria-hidden');
@@ -162,16 +176,18 @@ export const createRuntime = async (
     element.dispatchEvent(new CustomEvent('nativeUIChange'));
   };
   const restoreAll = () => {
-    Array.from(sources.keys()).forEach(restore);
+    Array.from(sources.keys()).forEach((element) => restore(element));
     verticalBarsOwners.forEach((element) => element.removeAttribute(verticalBarsMarker));
     verticalBarsOwners.clear();
     verticalBarsMembers.forEach((element) => element.removeAttribute(verticalBarsMemberMarker));
     verticalBarsMembers.clear();
   };
-  const finishWaiters = () => {
-    const current = waiters;
-    waiters = [];
-    current.forEach((resolve) => resolve());
+  const finishWaiters = (transition?: NonNullable<typeof navigation.current>) => {
+    waiters = waiters.filter((waiter) => {
+      if (transition && waiter.transition !== transition) return true;
+      waiter.resolve();
+      return false;
+    });
   };
   const schedule = () => {
     if (stopped) return;
@@ -243,17 +259,17 @@ export const createRuntime = async (
     if (!candidate) diagnose('unsupported-control: check the supported Ionic markup, fixed placement, and styling requirements.', element);
     return candidate && controlEnabled(candidate) ? candidate : undefined;
   };
-  const flush = async () => {
+  const flush = async (transition?: NonNullable<typeof navigation.current>) => {
     if (stopped) return;
     schedule();
     try {
-      await bounded(new Promise<void>((resolve) => waiters.push(resolve)));
+      await bounded(new Promise<void>((resolve) => waiters.push({ resolve, transition })));
     } catch (error) {
       await fail(error);
     }
   };
   const blocked = (element: HTMLElement) =>
-    verticalBarsPages.isDeparted(element) ||
+    verticalBarsPages.isDeparted(element, true) ||
     (!isVerticalBarsSource(element) &&
       (Array.from(suspended).some((scopes) => scopes.some((scope) => scope.contains(element))) ||
         Array.from(pages).some((scope) => scope.contains(element)) ||
@@ -280,36 +296,51 @@ export const createRuntime = async (
     );
   };
   // Compare source data before PNG rendering mutates each item's payload.
-  const signature = (candidate: Candidate) =>
-    JSON.stringify({ control: candidate.control, icons: candidate.icons.map(({ source }) => source), assets: candidate.assets?.signature });
+  const signature = (candidate: Candidate, includeTransitionIds = true) =>
+    JSON.stringify(
+      { control: candidate.control, icons: candidate.icons.map(({ source }) => source), assets: candidate.assets?.signature },
+      includeTransitionIds ? undefined : (key, value) => (key === 'transitionId' ? undefined : value),
+    );
   const read = (): Candidate[] => {
+    if (verticalGesture && (overlayOpen(true, true) || !verticalGesture.scopes.every(inVerticalBarsSurface))) verticalGesture = undefined;
     search.keepSearchTabsVisible();
     for (const page of pages) if (!page.isConnected) pages.delete(page);
     for (const surface of moving.keys()) if (!surface.isConnected) moving.delete(surface);
-    if (doc.hidden || overlayOpen(false, true, railPreservingOverlays)) return [];
-    if (win.visualViewport && (win.visualViewport.scale !== 1 || win.visualViewport.offsetTop !== 0) && !search.hasActive()) return [];
+    if (doc.hidden || overlayOpen(false, true, railPreservingOverlays)) {
+      navigation.clear();
+      verticalGesture = undefined;
+      return [];
+    }
+    if (win.visualViewport && (win.visualViewport.scale !== 1 || win.visualViewport.offsetTop !== 0) && !search.hasActive()) {
+      navigation.clear();
+      verticalGesture = undefined;
+      return [];
+    }
     const overlayVisible = overlayOpen();
+    if (overlayVisible) navigation.clear();
     // Web rail projections also hide their originals. Measure those sources
     // without releasing the visible clones before native acknowledges ownership.
     const measurableSources = new Set([
       ...sources.keys(),
       ...Array.from(scope.querySelectorAll<HTMLElement>(`[${marker}], [data-native-ui-web-source]`)).filter(isVerticalBarsSource),
     ]);
-    const candidates = unprojected(measurableSources, () =>
-      search
-        .decorate(
-          Array.from(scope.querySelectorAll<HTMLElement>(discovery))
-            .filter(
-              (element) =>
-                inVerticalBarsSurface(element) &&
-                !verticalBarsPages.isDeparted(element) &&
-                (!blocked(element) || (overlayVisible && isVerticalBarsSource(element))),
-            )
-            .map(readEnabledCandidate)
-            .filter((candidate): candidate is Candidate => !!candidate),
-          blocked,
-        )
-        .filter((candidate) => !rejected.has(candidate.element) || rejected.get(candidate.element) !== signature(candidate)),
+    const candidates = navigation.measure(() =>
+      unprojected(measurableSources, () =>
+        search
+          .decorate(
+            Array.from(scope.querySelectorAll<HTMLElement>(discovery))
+              .filter(
+                (element) =>
+                  inVerticalBarsSurface(element) &&
+                  !verticalBarsPages.isDeparted(element, true) &&
+                  (!blocked(element) || (overlayVisible && isVerticalBarsSource(element))),
+              )
+              .map(readEnabledCandidate)
+              .filter((candidate): candidate is Candidate => !!candidate),
+            blocked,
+          )
+          .filter((candidate) => !rejected.has(candidate.element) || rejected.get(candidate.element) !== signature(candidate, false)),
+      ),
     );
     // An extension owns its entire source subtree. Never project a nested built-in twice.
     const extensionSources = candidates.filter((candidate) => candidate.control.kind === 'extension');
@@ -333,7 +364,9 @@ export const createRuntime = async (
     const selected = exclusive.filter(
       (candidate) => candidate.control.kind !== 'back-button' || !isVerticalBarsCandidate(candidate.element) || candidate.element === back,
     );
-    return overlayVisible ? selected.filter((candidate) => isVerticalBarsCandidate(candidate.element)) : selected;
+    const result = overlayVisible ? selected.filter((candidate) => isVerticalBarsCandidate(candidate.element)) : selected;
+    assignToolbarTransitionIds(result);
+    return navigation.retain(result);
   };
   const observe = () => {
     const wanted = new Set<Element | ShadowRoot>();
@@ -402,26 +435,31 @@ export const createRuntime = async (
       observe();
       let candidates = read();
       const signatures = new Map(candidates.map((candidate) => [candidate.element, signature(candidate)]));
+      const rejectionSignatures = new Map(candidates.map((candidate) => [candidate.element, signature(candidate, false)]));
       const failedAssets = new Set<Candidate>();
-      for (const candidate of candidates) {
-        try {
-          await candidate.assets?.render(icons);
-        } catch {
-          failedAssets.add(candidate);
-          diagnose('invalid-assets: image conversion or serialized extension props failed.', candidate.element);
-        }
-        for (const icon of candidate.icons) {
-          const field = icon.field ?? 'icon';
-          icon.item[field] = await icons.render(
-            icon.source,
-            field === 'icon' ? icon.item.iconWidth! : icon.item.closeIconWidth!,
-            field === 'icon' ? icon.item.iconHeight! : icon.item.closeIconHeight!,
+      await Promise.all(
+        candidates.map(async (candidate) => {
+          try {
+            await candidate.assets?.render(icons);
+          } catch {
+            failedAssets.add(candidate);
+            diagnose('invalid-assets: image conversion or serialized extension props failed.', candidate.element);
+          }
+          await Promise.all(
+            candidate.icons.map(async (icon) => {
+              const field = icon.field ?? 'icon';
+              icon.item[field] = await icons.render(
+                icon.source,
+                field === 'icon' ? icon.item.iconWidth! : icon.item.closeIconWidth!,
+                field === 'icon' ? icon.item.iconHeight! : icon.item.closeIconHeight!,
+              );
+            }),
           );
-        }
-      }
+        }),
+      );
       candidates = candidates.filter((candidate) => !failedAssets.has(candidate));
       if (stopped || dirty || (retentions.size && !manualSuspensions.size)) return;
-      const retained = new Set(candidates.flatMap(candidateSources));
+      const retained = new Set([...candidates.flatMap(candidateSources), ...(verticalGesture?.sources ?? [])]);
       const removed = Array.from(sources.keys()).filter((element) => !retained.has(element));
       if (removed.some(isVerticalBarsSource)) {
         actions.forEach(forgetVerticalBarFrame);
@@ -457,9 +495,12 @@ export const createRuntime = async (
           /* Older native binaries can still use the CSS fallback. */
         }
       }
-      if (removed.length) {
+      const committingNavigation = navigation.current?.phase === 'committing';
+      const preparingNavigation = navigation.current?.leased && navigation.current.phase === 'playing';
+      const returningToWeb = removed.filter((element) => !committingNavigation || !navigation.owns(element));
+      if (returningToWeb.length) {
         // Restore the source and let WebKit paint before removing its native cover.
-        removed.forEach(restore);
+        returningToWeb.forEach((element) => restore(element, preparingNavigation));
         if (removed.some(isVerticalBarsSource))
           win.dispatchEvent(new CustomEvent('nativeUIVerticalBarsRelease', { detail: { instant: handoffInstant } }));
         // The outgoing tab is no longer visible, so waiting two frames only leaves its
@@ -481,7 +522,33 @@ export const createRuntime = async (
             : undefined;
       const modal = topModal(doc);
       const verticalBarFrame = modal && modalUsesVerticalBars(modal) ? modalVerticalBarFrame(modal) : undefined;
+      const transition = navigation.current;
+      const railCandidates = candidates.filter((candidate) => candidate.control.placement === 'vertical-bars');
+      const activePage = railCandidates.length
+        ? (railCandidates.find((candidate) => candidate.control.kind !== 'tab-bar')?.element.closest<HTMLElement>('.ion-page') ??
+          Array.from((modal ?? scope).querySelectorAll<HTMLElement>('.ion-page'))
+            .reverse()
+            .find((page) => {
+              const invisible = page.closest<HTMLElement>('.ion-page-invisible');
+              return (
+                !page.closest('.ion-page-hidden, ion-menu') &&
+                !verticalBarsPages.isDeparted(page) &&
+                (modal || !page.closest('ion-modal, ion-popover')) &&
+                (!invisible || pages.has(invisible))
+              );
+            }))
+        : undefined;
       const data = {
+        verticalBarNavigationPhase: verticalGesture ? (verticalGesture.pending ? ('tracking' as const) : ('settling' as const)) : undefined,
+        verticalBarNavigation: activePage ? verticalNavigation.read(activePage).map(id) : undefined,
+        toolbarTransition:
+          transition?.prepared && transition.phase !== 'committing'
+            ? {
+                id: transition.id,
+                sourceIds: transition.frozen.map((candidate) => candidate.control.id),
+                destination: transition.destination.map((candidate) => candidate.control),
+              }
+            : undefined,
         verticalBarFrame,
         viewportWidth: win.innerWidth,
         verticalBarEdge,
@@ -489,7 +556,11 @@ export const createRuntime = async (
       };
       const serialized = JSON.stringify(data);
       if (serialized === lastSnapshot && !forceRefresh) return;
-      const snapshot: NativeUISnapshot = { ...data, revision: ++revision, transitionDuration: crossfade.duration(handoffInstant) };
+      const snapshot: NativeUISnapshot = {
+        ...data,
+        revision: ++revision,
+        transitionDuration: crossfade.duration(handoffInstant || committingNavigation || preparingNavigation),
+      };
       // A native visibility notification during this update must survive its ack.
       forceRefresh = false;
       updates++;
@@ -497,6 +568,15 @@ export const createRuntime = async (
       const result = await bounded(plugin.update(snapshot));
       if (stopped || (retentions.size && !manualSuspensions.size)) return;
       if (result.revision !== snapshot.revision) throw new Error('Native UI revision mismatch');
+      if (transition && navigation.current === transition && result.toolbarTransition === transition.id) {
+        transition.native = true;
+        navigation.mask(
+          transition.destination.filter((candidate) => !result.rejectedControls?.includes(candidate.control.id)),
+          true,
+        );
+      }
+      if (transition && navigation.current === transition)
+        navigation.unmask(transition.destination.filter((candidate) => result.rejectedControls?.includes(candidate.control.id)));
       if (`${win.innerWidth}:${win.innerHeight}` !== size) {
         lastSnapshot = '';
         dirty = true;
@@ -507,13 +587,15 @@ export const createRuntime = async (
         lastSnapshot = '';
         dirty = true;
       }
+      if (result.rejectedControls?.some((id) => navigation.current?.frozen.some((candidate) => candidate.control.id === id)))
+        navigation.clear();
       for (const candidate of candidates) {
         if (result.rejectedControls?.includes(candidate.control.id)) {
           diagnose(
             'native-rejected: the native renderer rejected this source; check decoded props, placement, and device support.',
             candidate.element,
           );
-          rejected.set(candidate.element, signatures.get(candidate.element)!);
+          rejected.set(candidate.element, rejectionSignatures.get(candidate.element)!);
           setRejected(candidate.element, true);
           dirty = true;
         }
@@ -521,7 +603,7 @@ export const createRuntime = async (
       // A page mutation must not tear down unchanged shared controls such as tabs.
       const currentCandidates = dirty ? read() : candidates;
       const current = dirty ? new Map(currentCandidates.map((candidate) => [candidate.element, signature(candidate)])) : signatures;
-      const currentSources = new Set(currentCandidates.flatMap(candidateSources));
+      const currentSources = new Set([...currentCandidates.flatMap(candidateSources), ...(verticalGesture?.sources ?? [])]);
       const accepted = candidates.filter((candidate) => current.get(candidate.element) === signatures.get(candidate.element));
       accepted.forEach((candidate) => setRejected(candidate.element, false));
       const acceptedVerticalBarsOwners = new Set(
@@ -540,7 +622,8 @@ export const createRuntime = async (
       );
       // Keep an existing cover while its content catches up. Only an ineligible
       // source needs to return to Web; new sources still require an exact ack.
-      for (const element of sources.keys()) if (!currentSources.has(element)) restore(element);
+      for (const element of sources.keys())
+        if (!currentSources.has(element)) restore(element, committingNavigation && navigation.owns(element));
       for (const element of verticalBarsOwners) {
         if (acceptedVerticalBarsOwners.has(element)) continue;
         element.removeAttribute(verticalBarsMarker);
@@ -561,19 +644,41 @@ export const createRuntime = async (
         element.setAttribute(verticalBarsMemberMarker, '');
         verticalBarsMembers.add(element);
       }
-      for (const element of accepted.flatMap(candidateSources)) {
-        const newlyProjected = !sources.has(element) || !element.hasAttribute(marker);
-        if (!sources.has(element)) {
-          sources.set(element, element.getAttribute('aria-hidden'));
-          crossfade.play(element, true, handoffInstant || (isVerticalBarsSource(element) && !element.matches('ion-tab-bar')));
+      for (const candidate of accepted) {
+        const instant = handoffInstant || (committingNavigation && horizontalToolbar(candidate));
+        for (const element of candidateSources(candidate)) {
+          const newlyProjected = !sources.has(element) || !element.hasAttribute(marker);
+          if (!sources.has(element)) {
+            sources.set(element, element.getAttribute('aria-hidden'));
+            crossfade.play(element, true, instant || (isVerticalBarsSource(element) && !element.matches('ion-tab-bar')));
+          }
+          element.setAttribute(marker, '');
+          element.setAttribute('aria-hidden', 'true');
+          if (newlyProjected) element.dispatchEvent(new CustomEvent('nativeUIChange'));
         }
-        element.setAttribute(marker, '');
-        element.setAttribute('aria-hidden', 'true');
-        if (newlyProjected) element.dispatchEvent(new CustomEvent('nativeUIChange'));
       }
+      // Native has acknowledged this rendered snapshot even when a concurrent DOM
+      // mutation invalidates its signature. An existing cover is still visible;
+      // keep that snapshot available if navigation starts before the next update.
+      acknowledged = candidates.filter(
+        (candidate) =>
+          !result.rejectedControls?.includes(candidate.control.id) && candidateSources(candidate).some((source) => sources.has(source)),
+      );
+      if (committingNavigation && !invalidated) navigation.clear();
       const received = pendingActivations;
       pendingActivations = [];
       received.forEach(activate);
+      // Navigation only needs its acknowledged handoff. Unrelated refreshes and
+      // fades may continue without holding the page at its starting position.
+      // An earlier lifecycle snapshot may finish after endpoint preparation. It
+      // cannot release playback before the prepared transition itself was sent.
+      if (
+        preparingNavigation &&
+        !invalidated &&
+        transition === navigation.current &&
+        (!transition?.prepared || snapshot.toolbarTransition?.id === transition.id)
+      )
+        finishWaiters(transition);
       await crossfade.settled();
       // Geometry belongs to the outgoing tab visual, not to other rail owners.
       // Keep it until that visual has completely faded back to native.
@@ -617,6 +722,7 @@ export const createRuntime = async (
       records.some(
         (record) =>
           record.attributeName !== marker &&
+          record.attributeName !== navigationMarker &&
           record.attributeName !== 'data-native-ui-web-source' &&
           record.attributeName !== toolbarTextMarker &&
           record.attributeName !== fadeMarker &&
@@ -634,6 +740,59 @@ export const createRuntime = async (
   const resize = new ResizeObserver(schedule);
   const on = (target: EventTarget, name: string, callback: EventListener = schedule) =>
     target.addEventListener(name, callback, { capture: true, signal: listeners.signal });
+  // Measure only before playback. Restore page attributes synchronously, before WebKit paints.
+  const maskNavigationPage = (page: HTMLElement) => {
+    if (!navigation.current) return;
+    const className = page.getAttribute('class');
+    const pageStyle = page.getAttribute('style');
+    // Ionic can hide a transitioning header until its collapse state settles. Its fixed buttons
+    // still need correspondence before the transition creates its Web back clone.
+    const headers = Array.from(page.querySelectorAll<HTMLElement>('ion-header.header-transitioning')).filter(
+      (header) => !header.closest('ion-content'),
+    );
+    const headerStyles = headers.map((header) => header.getAttribute('style'));
+    headers.forEach((header) => header.style.setProperty('opacity', '1', 'important'));
+    measuringPointerPages.add(page);
+    page.classList.remove('ion-page-hidden', 'ion-page-invisible');
+    page.style.setProperty('pointer-events', 'auto', 'important');
+    try {
+      const candidates = navigation.measure(() =>
+        unprojected(sources.keys(), () =>
+          // Only fixed toolbar controls participate in this handoff. Avoid measuring
+          // content controls that will be discarded by horizontalToolbar below.
+          Array.from(page.querySelectorAll<HTMLElement>(discovery))
+            .filter(inFixedToolbar)
+            .map(readEnabledCandidate)
+            .filter((candidate): candidate is Candidate => !!candidate && horizontalToolbar(candidate)),
+        ),
+      );
+      assignToolbarTransitionIds(candidates);
+      navigation.current.destination = candidates;
+      navigation.mask(candidates);
+    } finally {
+      headers.forEach((header, index) => {
+        const style = headerStyles[index];
+        if (style === null) header.removeAttribute('style');
+        else header.setAttribute('style', style);
+      });
+      if (className === null) page.removeAttribute('class');
+      else page.setAttribute('class', className);
+      if (pageStyle === null) page.removeAttribute('style');
+      else page.setAttribute('style', pageStyle);
+      win.setTimeout(() => measuringPointerPages.delete(page), 0);
+    }
+  };
+  const finishNavigation = (transition = navigation.current) => {
+    if (transition !== navigation.current || !transition || transition.phase !== 'playing') return;
+    transition.phase = 'settling';
+    // Ionic removes page transforms and applies hidden-page classes after onFinish.
+    void painted().then(() => {
+      if (stopped || navigation.current !== transition) return;
+      transition.phase = 'committing';
+      forceRefresh = true;
+      schedule();
+    });
+  };
   const pageWill: EventListener = (event) => {
     const page = event.target as HTMLElement;
     verticalBarsPages.lifecycle(event);
@@ -643,6 +802,13 @@ export const createRuntime = async (
     // Angular updates the URL before willLeave, but keeps ion-tab-bar.selectedTab on the
     // leaving tab until DidChange. A mismatch means this leave is a tab switch, not a stack push.
     if (event.type === LIFECYCLE_WILL_LEAVE) beginTabSwitchHandoffIfNeeded(page);
+    if (event.type === LIFECYCLE_WILL_LEAVE && !tabSwitchHandoff && !manualSuspensions.size && !overlayOpen()) {
+      navigation.begin([...pages, page], acknowledged);
+      for (const entering of pages) if (entering !== page) maskNavigationPage(entering);
+    } else if (event.type === LIFECYCLE_WILL_ENTER && navigation.current) {
+      navigation.begin([page], acknowledged);
+      maskNavigationPage(page);
+    }
     pages.add(page);
     schedule();
   };
@@ -650,6 +816,7 @@ export const createRuntime = async (
     const page = event.target as HTMLElement;
     verticalBarsPages.lifecycle(event);
     pages.delete(page);
+    if (navigation.current && !navigation.current.leased && pages.size === 0) finishNavigation();
     schedule();
     if (tabSwitchHandoff && pages.size === 0) endTabSwitchHandoff();
   };
@@ -715,6 +882,7 @@ export const createRuntime = async (
     verticalBarsPages.cancel(entering, leaving);
     pages.delete(leaving);
     if (entering) pages.delete(entering);
+    if (!navigation.current?.leased) finishNavigation();
     schedule();
   });
   on(doc, 'ionTabsWillChange', () => {
@@ -783,7 +951,10 @@ export const createRuntime = async (
       schedule();
     } else refreshLayout();
   });
-  on(win, 'resize', refreshLayout);
+  on(win, 'resize', () => {
+    navigation.clear();
+    refreshLayout();
+  });
   on(win, 'keyboardWillShow', () => search.keyboard(true));
   on(win, 'keyboardWillHide', () => search.keyboard(false));
   on(win, 'scroll');
@@ -822,6 +993,8 @@ export const createRuntime = async (
       const token = Symbol();
       let resumed = false;
       if (!stopped) {
+        navigation.clear();
+        verticalGesture = undefined;
         manualSuspensions.add(token);
         getNativeSearchBindings(doc).forEach((binding) => search.retire(binding));
         await flush();
@@ -849,6 +1022,9 @@ export const createRuntime = async (
         observed.clear();
         actions.clear();
         pendingActivations = [];
+        navigation.clear();
+        acknowledged = [];
+        verticalGesture = undefined;
         search.destroy();
         crossfade.destroy();
         restoreAll();
@@ -901,10 +1077,13 @@ export const createRuntime = async (
       return;
     }
     lastSequence = event.sequence;
-    if (!element) return false;
+    if (!element || (verticalGesture && owner && isVerticalBarsSource(owner))) return false;
     if (!owner || !inVerticalBarsSurface(owner)) return false;
     const direct = !blocked(owner) && unprojected(sources.keys(), () => readEnabledCandidate(owner));
     const candidate = direct || read().find((candidate) => candidate.actions.has(event.id));
+    // Only retained horizontal controls are locked during navigation. Vertical
+    // Bars and other toolbar controls keep their existing activation lifecycle.
+    if (candidate && horizontalToolbar(candidate) && navigation.owns(element)) return false;
     const item = candidate?.control.items.find((item) => item.id === event.id);
     const searchAction =
       candidate?.control.search && [candidate.control.search.trigger.id, candidate.control.search.closeId].includes(event.id);
@@ -947,24 +1126,102 @@ export const createRuntime = async (
         await flush();
         return !stopped && search.projected(binding);
       },
-      async suspend(scopes) {
+      async suspend(scopes, suspensionOptions) {
+        verticalGesture = undefined;
+        if (!suspensionOptions?.navigation) {
+          navigation.clear();
+        }
+        let transition: typeof navigation.current;
+        let finishVertical: ((canceled: boolean) => boolean) | undefined;
+        if (
+          suspensionOptions?.navigation &&
+          !tabSwitchHandoff &&
+          !overlayOpen(true, true) &&
+          scopes[0]?.closest('ion-app.ios-theme-vertical-bars') &&
+          scopes.every(inVerticalBarsSurface)
+        ) {
+          finishVertical = verticalNavigation.begin(scopes[0], scopes[1], suspensionOptions.direction);
+          if (suspensionOptions.interactive) {
+            verticalGesture = {
+              pending: true,
+              scopes,
+              sources: new Set(
+                acknowledged.filter((candidate) => candidate.control.placement === 'vertical-bars').flatMap(candidateSources),
+              ),
+            };
+          }
+        }
+        if (suspensionOptions?.navigation && !manualSuspensions.size && !overlayOpen() && !tabSwitchHandoff) {
+          transition = navigation.begin(scopes, acknowledged, true);
+          maskNavigationPage(scopes[0]);
+          // Keep outgoing surfaces native through playback, including those with
+          // no destination. Native progress fades them out in place.
+          try {
+            await Promise.all(
+              transition.destination.flatMap((candidate) =>
+                candidate.icons.map(async (icon) => {
+                  icon.item.icon = await icons.render(icon.source, icon.item.iconWidth!, icon.item.iconHeight!);
+                }),
+              ),
+            );
+          } catch (error) {
+            await fail(error);
+            return () => {};
+          }
+          transition.prepared = transition.frozen.length > 0 || transition.destination.length > 0;
+        }
+        const gesture = verticalGesture;
         getNativeSearchBindings(doc)
           .filter((binding) => scopes.some((scope) => scope.contains(binding.footer) || scope.contains(binding.tabBar)))
           .forEach((binding) => search.retire(binding));
         suspended.add(scopes);
-        await flush();
-        // Source DOM has been restored before Ionic starts moving it.
+        await flush(transition);
+        // Moving content has returned to Web; fixed toolbar covers remain native for navigation.
         await new Promise<void>((resolve) => win.requestAnimationFrame(() => resolve()));
-        return (canceled = false) => {
+        const release: NativeUITransitionRelease = (canceled = false) => {
+          const currentVertical = finishVertical?.(canceled) !== false;
           suspended.delete(scopes);
+          if (!currentVertical) return;
+          if (verticalGesture === gesture) verticalGesture = undefined;
           if (canceled || !scopes.some((scope) => scope.closest('ion-app.ios-theme-vertical-bars'))) {
             scopes.forEach((scope) => pages.delete(scope)); // Preserve ordinary iPhone handoff; cancellation has no DidLeave.
             if (canceled) {
               verticalBarsPages.cancel(scopes[0], scopes[1]); // The entering page is abandoned; the leaving page stays active.
             }
           }
+          if (transition) finishNavigation(transition);
           schedule();
         };
+        if (gesture) {
+          release.finishGesture = (complete) => {
+            if (!complete || verticalGesture !== gesture) return;
+            gesture.pending = false;
+            schedule();
+          };
+        }
+        if (transition?.native) {
+          let requested = 0;
+          let sent = -1;
+          let sending = false;
+          release.progress = (value) => {
+            requested = Math.max(0, Math.min(1, value));
+            if (sending || requested === sent || navigation.current !== transition) return;
+            sending = true;
+            void (async () => {
+              try {
+                do {
+                  sent = requested;
+                  await bounded(plugin.setToolbarTransitionProgress({ id: transition.id, progress: sent }));
+                } while (requested !== sent && navigation.current === transition);
+              } catch (error) {
+                await fail(error);
+              } finally {
+                sending = false;
+              }
+            })();
+          };
+        }
+        return release;
       },
     });
     on(win, 'pagehide', () => {

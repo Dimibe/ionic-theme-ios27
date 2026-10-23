@@ -12,6 +12,7 @@ public class NativeUIPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDelegate {
         CAPPluginMethod(name: "configure", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getWebViewMetrics", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getVerticalBarsGeometry", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setToolbarTransitionProgress", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "update", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "clear", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "prepareOverlay", returnType: CAPPluginReturnPromise),
@@ -21,6 +22,7 @@ public class NativeUIPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDelegate {
         CAPPluginMethod(name: "stopOverlays", returnType: CAPPluginReturnPromise)
     ]
     private var overlays: NativeUIOverlayController?
+    private var toolbarTransition: NativeUIToolbarTransition?
     private var host: NativeUIHost?
     private var verticalBars: NativeUIVerticalBarsControlling?
     private var controls: [String: UIView] = [:]
@@ -306,6 +308,8 @@ public class NativeUIPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDelegate {
     }
 
     private func removeControls(duration: TimeInterval = 0) {
+        toolbarTransition?.restore()
+        toolbarTransition = nil
         extensionActions.cancel()
         extensionNodes.removeAll()
         extensionSessions.removeAll()
@@ -347,6 +351,16 @@ public class NativeUIPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
+    @objc func setToolbarTransitionProgress(_ call: CAPPluginCall) {
+        guard let id = call.getInt("id"), let progress = call.getDouble("progress"), progress.isFinite, (0...1).contains(progress) else {
+            call.reject("Invalid toolbar progress"); return
+        }
+        DispatchQueue.main.async { [weak self] in
+            if let transition = self?.toolbarTransition, transition.id == id { transition.setProgress(progress) }
+            call.resolve()
+        }
+    }
+
     @objc func update(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { call.reject("Plugin released"); return }
@@ -360,12 +374,24 @@ public class NativeUIPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDelegate {
             guard let snapshot = try? call.decode(NativeUISnapshot.self), snapshot.isValid else {
                 call.reject("Invalid control snapshot"); return
             }
+            if self.toolbarTransition?.id != snapshot.toolbarTransition?.id {
+                self.toolbarTransition?.restore()
+                self.toolbarTransition = nil
+            }
             self.notifyWebViewMetricsChange()
             let duration = NativeUICrossfade.duration(snapshot.transitionDuration)
-            let existing = Set(self.controls.keys)
+            var existing = Set(self.controls.keys)
+            let pendingVerticalNavigation = snapshot.verticalBarNavigationPhase != nil && self.verticalBars != nil
             let verticalBars = snapshot.controls.filter { $0.placement == .verticalBars }
             let accessories = snapshot.controls.filter { $0.extensionContent?.tabBarId != nil }
-            let snapshots = snapshot.controls.filter { $0.placement != .verticalBars && $0.extensionContent?.tabBarId == nil }
+            var snapshots = snapshot.controls.filter { $0.placement != .verticalBars && $0.extensionContent?.tabBarId == nil }
+            if let transition = snapshot.toolbarTransition {
+                let sources = snapshots.filter { transition.sourceIds.contains($0.id) }
+                snapshots += transition.destination.filter { target in
+                    !snapshots.contains { $0.id == target.id } &&
+                    !sources.contains { $0.transitionId != nil && $0.transitionId == target.transitionId }
+                }
+            }
             let extensionIDs = Set(snapshot.controls.filter { $0.kind == .extension }.map(\.id))
             for id in Array(self.extensionNodes.keys) where !extensionIDs.contains(id) {
                 self.extensionActions.cancel(owner: id)
@@ -375,11 +401,12 @@ public class NativeUIPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDelegate {
             let verticalSearchActive = verticalBars.contains { $0.search.map { $0.available && $0.active } ?? false }
             let width = snapshot.viewportWidth
             self.revision = next
-            if snapshots.isEmpty && verticalBars.isEmpty && accessories.isEmpty {
+            if !pendingVerticalNavigation && snapshots.isEmpty && verticalBars.isEmpty && accessories.isEmpty && (snapshot.toolbarTransition?.destination.isEmpty ?? true) {
                 self.removeControls(duration: duration)
                 call.resolve(["revision": next]); return
             }
             let scale = webView.bounds.width / width
+            existing.formUnion(NativeUIButton.reassociate(snapshots, controls: &self.controls, fingerprints: &self.fingerprints))
             let retained = Set(snapshots.map(\.id))
             for id in Array(self.controls.keys) where !retained.contains(id) {
                 self.removeControl(id, duration: duration)
@@ -388,12 +415,12 @@ public class NativeUIPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDelegate {
             var fabs: [(NativeUIFab, NativeUIControl)] = []
             var searches: [(NativeUISearchControlling, NativeUIControl, CGRect, CGRect, UIView?, Bool)] = []
             var rejectedSearches: [String] = []
-            if verticalBars.isEmpty || (self.keyboardVisible && !verticalSearchActive) {
+            let enteringVerticalBars = self.verticalBars == nil
+            if (verticalBars.isEmpty && !pendingVerticalNavigation) || (self.keyboardVisible && !verticalSearchActive) {
                 self.verticalBars?.detach(duration: duration)
                 self.verticalBars = nil
                 if self.keyboardVisible { rejectedControls.append(contentsOf: verticalBars.map(\.id)) }
             } else if let owner = self.bridge?.viewController {
-                let entering = self.verticalBars == nil
                 let rail = self.verticalBars ?? NativeUIVerticalBarsController(
                     activate: { [weak self] id in self?.activate(id) },
                     changed: { [weak self] id, phase, value, composing, valueVersion in
@@ -406,10 +433,8 @@ public class NativeUIPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDelegate {
                 } else {
                     rail.view.frame = owner.view.bounds
                 }
-                // The shell owns the entry crossfade; later native updates keep SwiftUI motion.
-                rail.apply(verticalBars, rendering: self.rendering, edge: snapshot.verticalBarEdge ?? "right", animated: !entering)
                 rail.view.isHidden = false
-                if entering { NativeUICrossfade.enter(rail.view, duration: duration) }
+                if enteringVerticalBars { NativeUICrossfade.enter(rail.view, duration: duration) }
             } else {
                 rejectedControls.append(contentsOf: verticalBars.map(\.id))
             }
@@ -428,8 +453,11 @@ public class NativeUIPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDelegate {
                 self.extensionNodes[node.id] = node
                 accessoryContent = content
             }
-            self.verticalBars?.setAccessory(accessoryContent)
-            if snapshots.isEmpty {
+            // Publish toolbar, tabs and accessory together so the hosting tree receives
+            // one animation transaction. The shell owns only the initial crossfade.
+            self.verticalBars?.apply(verticalBars, rendering: self.rendering, edge: snapshot.verticalBarEdge ?? "right",
+                                     animated: !enteringVerticalBars, accessory: accessoryContent, navigation: snapshot.verticalBarNavigation ?? [], navigationPhase: snapshot.verticalBarNavigationPhase)
+            if snapshots.isEmpty && (snapshot.toolbarTransition?.destination.isEmpty ?? true) {
                 self.host?.removeFromSuperview()
                 self.host = nil
                 call.resolve(["revision": next, "rejectedControls": rejectedControls])
@@ -520,6 +548,9 @@ public class NativeUIPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDelegate {
                             if fab.superview == nil { host.addSubview(fab) }
                             self.controls[id] = fab
                             fabs.append((fab, node))
+                        } else if NativeUIButton.kinds.contains(node.kind), let button = self.controls[id] as? UIButton {
+                            _ = NativeUIButton.make(node, existing: button, rendering: self.rendering,
+                                                    activate: { [weak self] id in self?.activate(id) })
                         } else if let segment = self.controls[id] as? NativeUISegment, node.kind == NativeUISegment.kind {
                             segment.update(node, scale: scale, rendering: self.rendering)
                         } else if let tabBar = self.controls[id] as? UITabBar, node.kind == NativeUITabBar.kind {
@@ -539,7 +570,7 @@ public class NativeUIPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDelegate {
                     guard let control = self.controls[id] else { reject(); continue }
                     if let tabBar = control as? UITabBar {
                         guard NativeUITabBar.fit(tabBar, node: node, bounds: bounds) else { reject(); continue }
-                    } else if control.frame != bounds {
+                    } else if control.frame != bounds && !(self.toolbarTransition?.controlIds.contains(id) ?? false) {
                         control.frame = bounds
                     }
                     control.overrideUserInterfaceStyle = node.dark ? .dark : .light
@@ -581,7 +612,18 @@ public class NativeUIPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDelegate {
             for (id, control) in self.controls where !existing.contains(id) && self.searchControllers[id] == nil {
                 NativeUICrossfade.enter(control, duration: duration)
             }
-            let complete = { call.resolve(["revision": next, "rejectedSearches": rejectedSearches, "rejectedControls": rejectedControls]) }
+            if let prepared = snapshot.toolbarTransition {
+                if self.toolbarTransition == nil {
+                    let origin = webView.convert(webView.bounds.origin, to: host)
+                    self.toolbarTransition = NativeUIToolbarTransition(prepared, sources: snapshots, controls: self.controls,
+                        scale: scale, origin: origin, rendering: self.rendering)
+                } else if let transition = self.toolbarTransition { transition.setProgress(transition.progress) }
+            }
+            let complete = {
+                var result: [String: Any] = ["revision": next, "rejectedSearches": rejectedSearches, "rejectedControls": rejectedControls]
+                if let transition = self.toolbarTransition { result["toolbarTransition"] = transition.id }
+                call.resolve(result)
+            }
             if let coordinator = searches.first?.0.transitionCoordinator,
                coordinator.animate(alongsideTransition: nil, completion: { _ in complete() }) { return }
             complete()

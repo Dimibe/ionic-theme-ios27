@@ -6,8 +6,7 @@ protocol NativeUIVerticalBarsControlling: AnyObject {
     var view: UIView { get }
     func measuredFrames(relativeTo webView: UIView) -> [String: CGRect]
     @MainActor func attach(to owner: UIViewController, in parent: UIView)
-    @MainActor func apply(_ controls: [NativeUIControl], rendering: NativeUIControlRendering, edge: String, animated: Bool)
-    @MainActor func setAccessory(_ content: AnyView?)
+    @MainActor func apply(_ controls: [NativeUIControl], rendering: NativeUIControlRendering, edge: String, animated: Bool, accessory: AnyView?, navigation: [String], navigationPhase: String?)
     var ownsKeyboardChrome: Bool { get }
     func presentPopover(anchor: String, host: NativeUIOverlayHost, completion: @escaping (Bool) -> Void) -> Bool
     @MainActor func detach(duration: TimeInterval)
@@ -17,6 +16,7 @@ protocol NativeUIVerticalBarsControlling: AnyObject {
 final class NativeUIVerticalBarsModel: ObservableObject {
     struct Item: Identifiable {
         let id: String
+        let transitionID: String
         let label: String
         let accessibilityLabel: String
         let image: UIImage?
@@ -26,11 +26,13 @@ final class NativeUIVerticalBarsModel: ObservableObject {
         let borderWidth: CGFloat
         let badge: NativeUIBadge?
         let disabled: Bool
+        var isBack = false
         var selected: Bool
     }
 
     struct Group: Identifiable {
         let id: String
+        let transitionID: String
         let items: [Item]
         let slot: NativeUIControl.ToolbarSlot?
     }
@@ -40,20 +42,20 @@ final class NativeUIVerticalBarsModel: ObservableObject {
     var popoverHost: NativeUIOverlayHost?
     var popoverPresented: ((Bool) -> Void)?
     @Published var search: NativeUIVerticalSearchModel?
-    @Published var back: Item?
+    @Published var navigation: [String] = []
+    private var pageGroups: [String: [Group]] = [:]
     @Published var groups: [Group] = []
     @Published var tabs: [Item] = []
     @Published var selection = ""
     var activate: (String) -> Void = { _ in }
-    private var domSelection = ""
     private var pendingSelection: NativeUITabBar.PendingSelection?
     private var pendingExpiryWork: DispatchWorkItem?
 
     func apply(_ controls: [NativeUIControl], rendering: NativeUIControlRendering, animated: Bool = true,
-               now: CFAbsoluteTime = CFAbsoluteTimeGetCurrent()) {
-        func item(_ source: NativeUIItem) -> Item {
+               accessory: AnyView? = nil, navigation: [String] = [], now: CFAbsoluteTime = CFAbsoluteTimeGetCurrent()) {
+        func item(_ source: NativeUIItem, isBack: Bool = false) -> Item {
             let image = rendering.image(source.content)
-            return Item(id: source.id, label: source.content.label,
+            return Item(id: source.id, transitionID: source.content.transitionId ?? source.id, label: source.content.label,
                  accessibilityLabel: source.content.accessibilityLabel,
                  // UIKit toolbar extraction uses the UIImage's rendering mode.
                  image: source.content.disabled ? image?.withRenderingMode(.alwaysTemplate) : image,
@@ -61,19 +63,32 @@ final class NativeUIVerticalBarsModel: ObservableObject {
                  background: source.content.backgroundColor.map { Color(uiColor: rendering.color($0)) },
                  borderColor: source.content.borderColor.map { Color(uiColor: rendering.color($0)) },
                  borderWidth: source.content.borderWidth ?? 0,
-                 badge: source.content.badge, disabled: source.content.disabled,
+                 badge: source.content.badge, disabled: source.content.disabled, isBack: isBack,
                  selected: source.content.selected)
         }
-        withAnimation(animated && !UIAccessibility.isReduceMotionEnabled ? .smooth(duration: 0.3) : nil) {
-            back = controls.first(where: { $0.kind == .backButton })?.items.first.map(item)
-            groups = controls.compactMap { control in
-                guard [.button, .buttons, .menuButton].contains(control.kind) else { return nil }
-                return Group(id: control.id, items: control.items.map(item), slot: control.toolbarSlot)
+        withAnimation(animated && !UIAccessibility.isReduceMotionEnabled ? .default : nil) {
+            if self.navigation != navigation {
+                if let page = self.navigation.last { pageGroups[page] = groups }
+                let retained = Set(self.navigation + navigation)
+                pageGroups = pageGroups.filter { retained.contains($0.key) }
+                self.navigation = navigation
             }
+            self.accessory = accessory
+            groups = controls.compactMap { control in
+                guard [.button, .buttons, .menuButton, .backButton].contains(control.kind) else { return nil }
+                let items = control.items.map { item($0, isBack: control.kind == .backButton) }
+                return Group(id: control.id, transitionID: control.transitionId ?? control.id, items: items,
+                             slot: control.toolbarSlot ?? (control.kind == .backButton ? .start : .end))
+            }
+            // Keep all snapshot publications in this transaction. A later unanimated
+            // accessory/tab publication can cancel the toolbar animation.
+            tabs = controls.first(where: { $0.kind == .tabBar })?.items.map { item($0) } ?? []
+            reconcileSelection(now: now)
         }
-        tabs = controls.first(where: { $0.kind == .tabBar })?.items.map(item) ?? []
-        domSelection = tabs.first(where: \.selected)?.id ?? ""
-        reconcileSelection(now: now)
+    }
+
+    func groups(on page: String?) -> [Group] {
+        page == navigation.last ? groups : page.flatMap { pageGroups[$0] } ?? []
     }
 
     func select(_ id: String, now: CFAbsoluteTime = CFAbsoluteTimeGetCurrent(), ttl: CFTimeInterval = 1) {
@@ -88,15 +103,12 @@ final class NativeUIVerticalBarsModel: ObservableObject {
     }
 
     private func reconcileSelection(now: CFAbsoluteTime = CFAbsoluteTimeGetCurrent()) {
-        guard let pending = pendingSelection else { selection = domSelection; return }
-        let item = tabs.first(where: { $0.id == pending.id })
-        if item == nil || item!.disabled || now >= pending.until || domSelection == pending.id {
-            pendingSelection = nil
+        selection = NativeUITabBar.PendingSelection.reconcile(&pendingSelection,
+            domSelection: tabs.first(where: \.selected)?.id,
+            isAvailable: { id in tabs.contains { $0.id == id && !$0.disabled } }, now: now) ?? ""
+        if pendingSelection == nil {
             pendingExpiryWork?.cancel()
             pendingExpiryWork = nil
-            selection = domSelection
-        } else {
-            selection = pending.id
         }
     }
 }
@@ -106,11 +118,12 @@ private struct NativeUIVerticalBarsLabel: View {
     let item: NativeUIVerticalBarsModel.Item
 
     var body: some View {
-        if let image = item.image {
+        if let image = item.isBack ? Image(systemName: "chevron.backward") : item.image.map({ Image(uiImage: $0) }) {
             Label {
-                Text(item.label.isEmpty ? item.accessibilityLabel : item.label)
+                // Back remains icon-only on horizontal fallback bars as well.
+                Text(item.isBack ? "" : item.label.isEmpty ? item.accessibilityLabel : item.label)
             } icon: {
-                Image(uiImage: image)
+                image
             }
         } else {
             Text(item.label)
@@ -124,7 +137,10 @@ private func verticalBarsButton(_ item: NativeUIVerticalBarsModel.Item, model: N
     let button = Button { model.activate(item.id) } label: { NativeUIVerticalBarsLabel(item: item) }
         .disabled(item.disabled)
         .accessibilityLabel(item.accessibilityLabel)
-        .accessibilityIdentifier(item.id)
+        .accessibilityIdentifier(item.isBack ? "BackButton" : item.id)
+        .background {
+            if item.isBack { NativeUIVerticalBarGeometryProbe() }
+        }
     if let background = item.background {
         button.buttonStyle(.glassProminent).tint(background)
     } else {
@@ -146,13 +162,16 @@ private struct NativeUIVerticalPopoverContent: UIViewControllerRepresentable {
 @available(iOS 26.0, *)
 private struct NativeUIVerticalBarsButton: ToolbarContent {
     @ObservedObject var model: NativeUIVerticalBarsModel
+    let page: String?
+    let groupID: String
     let id: String
     let placement: ToolbarItemPlacement
 
     // Observe here so same-ID updates also refresh the shared toolbar background.
     var body: some ToolbarContent {
-        if let item = model.groups.lazy.flatMap(\.items).first(where: { $0.id == id }) {
-            ToolbarItem(placement: placement) {
+        if let group = model.groups(on: page).first(where: { $0.transitionID == groupID }),
+           let item = group.items.first(where: { $0.transitionID == id }) {
+            ToolbarItem(id: item.transitionID, placement: placement) {
                 verticalBarsButton(item, model: model)
                     .popover(isPresented: Binding(
                         get: { model.popoverAnchor == item.id },
@@ -199,15 +218,6 @@ private struct NativeUIVerticalBarGeometryProbe: UIViewRepresentable {
 }
 
 @available(iOS 26.0, *)
-private func verticalBarsBackButton(_ item: NativeUIVerticalBarsModel.Item, model: NativeUIVerticalBarsModel) -> some View {
-    Button { model.activate(item.id) } label: { Image(systemName: "chevron.backward") }
-        .disabled(item.disabled)
-        .accessibilityLabel(item.accessibilityLabel)
-        .accessibilityIdentifier("BackButton")
-        .background(NativeUIVerticalBarGeometryProbe())
-}
-
-@available(iOS 26.0, *)
 private struct NativeUIVerticalBarsBadge: ViewModifier {
     let badge: NativeUIBadge?
 
@@ -251,16 +261,58 @@ private struct NativeUIVerticalBarsPage: View {
     @ObservedObject var model: NativeUIVerticalBarsModel
 
     var body: some View {
-        NavigationStack {
-            Color.clear.modifier(NativeUIVerticalBarsToolbarAdapter(model: model))
-                .toolbar {
-                    if model.search?.configuration.available == true {
-                        // Let the system adapt bottom-bar search to the vertical rail.
-                        DefaultToolbarItem(kind: .search, placement: .bottomBar)
-                    }
+        NavigationStack(path: .constant(Array(model.navigation.dropFirst()))) {
+            page(model.navigation.first)
+                .navigationDestination(for: String.self) { page($0) }
+        }
+        .id(model.navigation.first)
+    }
+
+    private func page(_ id: String?) -> some View {
+        NativeUIVerticalBarsContent().modifier(NativeUIVerticalBarsToolbarAdapter(model: model, page: id))
+            .navigationBarBackButtonHidden(true)
+            .toolbar {
+                if model.search?.configuration.available == true {
+                    DefaultToolbarItem(kind: .search, placement: .bottomBar)
                 }
+            }
+    }
+}
+
+// Only this library-owned empty page suppresses UIKit's content slide.
+// App-local extension views may contain their own, fully visible navigation stacks.
+@available(iOS 26.0, *)
+private struct NativeUIVerticalBarsContent: UIViewControllerRepresentable {
+    final class Controller: UIViewController {
+        override func viewDidLayoutSubviews() {
+            super.viewDidLayoutSubviews()
+            suppressContentTransition()
+        }
+        override func viewWillAppear(_ animated: Bool) {
+            super.viewWillAppear(animated)
+            suppressContentTransition()
+        }
+        override func viewWillDisappear(_ animated: Bool) {
+            super.viewWillDisappear(animated)
+            suppressContentTransition()
+        }
+        private func suppressContentTransition() {
+            guard let transition = transitionCoordinator,
+                  transition.presentationStyle == .none,
+                  !transition.containerView.isHidden else { return }
+            let content = transition.containerView
+            content.isHidden = true
+            if !transition.animate(alongsideTransition: nil, completion: { _ in content.isHidden = false }) {
+                content.isHidden = false
+            }
         }
     }
+    func makeUIViewController(context: Context) -> Controller {
+        let controller = Controller()
+        controller.view.backgroundColor = .clear
+        return controller
+    }
+    func updateUIViewController(_ controller: Controller, context: Context) {}
 }
 
 @available(iOS 26.0, *)
@@ -291,16 +343,17 @@ private struct NativeUIVerticalBarsCompression: ViewModifier {
 @available(iOS 26.0, *)
 private struct NativeUIVerticalBarsToolbarAdapter: ViewModifier {
     @ObservedObject var model: NativeUIVerticalBarsModel
+    let page: String?
 
     @ViewBuilder func body(content: Content) -> some View {
         #if canImport(UIKit, _underlyingVersion: 9127.0.85) && !targetEnvironment(macCatalyst)
         if #available(iOS 27.1, *) {
-            content.modifier(NativeUIVerticalBarsToolbar(model: model))
+            content.modifier(NativeUIVerticalBarsToolbar(model: model, page: page))
         } else {
-            content.modifier(NativeUIVerticalBarsLegacyToolbar(model: model))
+            content.modifier(NativeUIVerticalBarsLegacyToolbar(model: model, page: page))
         }
         #else
-        content.modifier(NativeUIVerticalBarsLegacyToolbar(model: model))
+        content.modifier(NativeUIVerticalBarsLegacyToolbar(model: model, page: page))
         #endif
     }
 }
@@ -309,30 +362,25 @@ private struct NativeUIVerticalBarsToolbarAdapter: ViewModifier {
 @available(iOS 27.1, *)
 private struct NativeUIVerticalBarsToolbar: ViewModifier {
     @ObservedObject var model: NativeUIVerticalBarsModel
+    let page: String?
 
     func body(content: Content) -> some View {
         content.toolbar {
-            if let back = model.back {
-                ToolbarItem(placement: .navigation) {
-                    verticalBarsBackButton(back, model: model)
-                }
-                .axisBehavior(.verticalPreferred)
-            }
-            ForEach(model.groups.filter { $0.slot == .start }) { group in
-                if group.id != model.groups.first(where: { $0.slot == .start })?.id {
+            ForEach(model.groups(on: page).filter { $0.slot == .start }, id: \.transitionID) { group in
+                if group.id != model.groups(on: page).first(where: { $0.slot == .start })?.id {
                     ToolbarSpacer(.fixed, placement: .topBarLeading)
                 }
-                ForEach(group.items) { item in
-                    NativeUIVerticalBarsButton(model: model, id: item.id, placement: .topBarLeading)
+                ForEach(group.items, id: \.transitionID) { item in
+                    NativeUIVerticalBarsButton(model: model, page: page, groupID: group.transitionID, id: item.transitionID, placement: .topBarLeading)
                     .axisBehavior(.verticalPreferred)
                 }
             }
-            ForEach(model.groups.filter { $0.slot != .start }) { group in
-                if group.id != model.groups.first(where: { $0.slot != .start })?.id {
+            ForEach(model.groups(on: page).filter { $0.slot != .start }, id: \.transitionID) { group in
+                if group.id != model.groups(on: page).first(where: { $0.slot != .start })?.id {
                     ToolbarSpacer(.fixed, placement: .topBarTrailing)
                 }
-                ForEach(group.items) { item in
-                    NativeUIVerticalBarsButton(model: model, id: item.id, placement: .topBarTrailing)
+                ForEach(group.items, id: \.transitionID) { item in
+                    NativeUIVerticalBarsButton(model: model, page: page, groupID: group.transitionID, id: item.transitionID, placement: .topBarTrailing)
                     .axisBehavior(.verticalPreferred)
                 }
             }
@@ -344,40 +392,32 @@ private struct NativeUIVerticalBarsToolbar: ViewModifier {
 @available(iOS 26.0, *)
 private struct NativeUIVerticalBarsLegacyToolbar: ViewModifier {
     @ObservedObject var model: NativeUIVerticalBarsModel
+    let page: String?
 
     func body(content: Content) -> some View {
         #if canImport(SwiftUI, _version: 8.0)
         content.toolbar {
-            if let back = model.back {
-                ToolbarItem(placement: .navigation) {
-                    verticalBarsBackButton(back, model: model)
+            ForEach(model.groups(on: page), id: \.transitionID) { group in
+                if group.id != model.groups(on: page).first(where: { $0.slot == group.slot })?.id {
+                    ToolbarSpacer(.fixed, placement: group.slot == .start ? .topBarLeading : .topBarTrailing)
                 }
-            }
-            ForEach(model.groups) { group in
-                if group.id != model.groups.first?.id {
-                    ToolbarSpacer(.fixed, placement: .primaryAction)
-                }
-                ForEach(group.items) { item in
-                    NativeUIVerticalBarsButton(model: model, id: item.id, placement: .primaryAction)
+                ForEach(group.items, id: \.transitionID) { item in
+                    NativeUIVerticalBarsButton(model: model, page: page, groupID: group.transitionID, id: item.transitionID, placement: group.slot == .start ? .topBarLeading : .topBarTrailing)
                 }
             }
         }
         #else
         // Older SDKs cannot use ForEach as ToolbarContent; attach each item separately.
-        let base = AnyView(content.toolbar {
-            if let back = model.back {
-                ToolbarItem(placement: .navigation) { verticalBarsBackButton(back, model: model) }
-            }
-        })
+        let base = AnyView(content)
         // Outer toolbar modifiers precede inner ones, so attach in reverse order.
-        return model.groups.reversed().reduce(base) { view, group in
+        return model.groups(on: page).reversed().reduce(base) { view, group in
             let items = group.items.reversed().reduce(view) { view, item in
                 AnyView(view.toolbar {
-                    NativeUIVerticalBarsButton(model: model, id: item.id, placement: .primaryAction)
+                    NativeUIVerticalBarsButton(model: model, page: page, groupID: group.transitionID, id: item.transitionID, placement: group.slot == .start ? .topBarLeading : .topBarTrailing)
                 })
             }
-            return group.id == model.groups.first?.id ? items : AnyView(items.toolbar {
-                ToolbarSpacer(.fixed, placement: .primaryAction)
+            return group.id == model.groups(on: page).first(where: { $0.slot == group.slot })?.id ? items : AnyView(items.toolbar {
+                ToolbarSpacer(.fixed, placement: group.slot == .start ? .topBarLeading : .topBarTrailing)
             })
         }
         #endif
@@ -461,8 +501,6 @@ final class NativeUIVerticalBarsController: NativeUIVerticalBarsControlling {
     private weak var owner: UIViewController?
     private let changed: (String, NativeUISearchPhase, String, Bool, Int) -> Int
 
-    func setAccessory(_ content: AnyView?) { model.accessory = content }
-
     var view: UIView { container }
     func measuredFrames(relativeTo webView: UIView) -> [String: CGRect] {
         var frames: [String: CGRect] = [:]
@@ -520,14 +558,26 @@ final class NativeUIVerticalBarsController: NativeUIVerticalBarsControlling {
         controller.didMove(toParent: owner)
     }
 
-    @MainActor func apply(_ controls: [NativeUIControl], rendering: NativeUIControlRendering, edge: String, animated: Bool = true) {
+    @MainActor func apply(_ controls: [NativeUIControl], rendering: NativeUIControlRendering, edge: String, animated: Bool = true, accessory: AnyView? = nil, navigation: [String] = [], navigationPhase: String? = nil) {
+        // Native vertical toolbars retain their source throughout a back swipe.
+        // Begin when the finger commits; keep input locked until Web settles.
+        container.isUserInteractionEnabled = navigationPhase == nil
+        guard navigationPhase != "tracking" else { return }
         container.railEdge = edge
         controller.railEdge = edge
+        // A presentation identity can survive source replacement, but an open
+        // popover still belongs to its original action. Retire it before the
+        // toolbar binding starts observing the replacement item's action ID.
+        if let anchor = model.popoverAnchor,
+           !controls.contains(where: { [.button, .buttons, .menuButton].contains($0.kind) && $0.items.contains(where: { $0.id == anchor }) }) {
+            model.popoverHost?.dismissAnchored?()
+            model.popoverAnchor = nil
+        }
         if let search = controls.first(where: { $0.search != nil })?.search {
             if model.search?.configuration.id == search.id { model.search?.apply(search) }
             else { model.search = NativeUIVerticalSearchModel(search, in: container, activate: model.activate, changed: changed) }
         } else { model.search = nil }
-        model.apply(controls, rendering: rendering, animated: animated)
+        model.apply(controls, rendering: rendering, animated: animated, accessory: accessory, navigation: navigation)
         controller.overrideUserInterfaceStyle = controls.contains(where: \.dark) ? .dark : .light
     }
 

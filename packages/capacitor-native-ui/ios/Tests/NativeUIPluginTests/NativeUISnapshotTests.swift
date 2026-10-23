@@ -1,9 +1,183 @@
 import XCTest
 import WebKit
+import SwiftUI
 import Capacitor
 @testable import NativeUIPlugin
 
 final class NativeUISnapshotTests: XCTestCase {
+    @MainActor func testPopoverReopensAfterPresentationIdentityKeepsReplacedSource() async throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("Requires SwiftUI toolbar") }
+        let owner = UIViewController()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 700, height: 900))
+        window.rootViewController = owner
+        window.makeKeyAndVisible()
+        let rail = NativeUIVerticalBarsController(activate: { _ in }, changed: { _, _, _, _, _ in 0 })
+        rail.attach(to: owner, in: owner.view)
+        defer { rail.detach(); window.isHidden = true }
+        func page(_ action: String) throws -> [NativeUIControl] {
+            try decode([control(["kind": "button", "placement": "vertical-bars", "transitionId": "stable-group",
+                "items": [item(["id": action, "transitionId": "stable-button"]) ]])]).controls
+        }
+        rail.apply(try page("old-action"), rendering: NativeUIControlRendering(), edge: "right", animated: false)
+        try await Task.sleep(nanoseconds: 500_000_000)
+        let host = NativeUIOverlayHost(configuration: WKWebViewConfiguration(), options: ["animated": false], event: { _ in })
+        host.preferredContentSize = CGSize(width: 180, height: 180)
+        XCTAssertTrue(rail.presentPopover(anchor: "old-action", host: host, completion: { _ in }))
+        for _ in 0..<50 {
+            if host.anchoredVisible { break }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTAssertTrue(host.anchoredVisible, "Fixture must display the actual SwiftUI popover")
+        rail.apply(try page("new-action"), rendering: NativeUIControlRendering(), edge: "right", animated: false)
+        try await Task.sleep(nanoseconds: 1_000_000_000)
+        let nextHost = NativeUIOverlayHost(configuration: WKWebViewConfiguration(), options: nil, event: { _ in })
+        XCTAssertTrue(rail.presentPopover(anchor: "new-action", host: nextHost, completion: { _ in }), "Replacing the source must not retain the old popover anchor")
+    }
+
+    @MainActor func testReplacingPendingPopoverSourceCompletesPresentationOnceAndAllowsReopen() throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("Requires SwiftUI toolbar") }
+        let owner = UIViewController()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 700, height: 900))
+        window.rootViewController = owner
+        window.makeKeyAndVisible()
+        let rail = NativeUIVerticalBarsController(activate: { _ in }, changed: { _, _, _, _, _ in 0 })
+        rail.attach(to: owner, in: owner.view)
+        defer { rail.detach(); window.isHidden = true }
+        func page(_ action: String) throws -> [NativeUIControl] {
+            try decode([control(["kind": "button", "placement": "vertical-bars", "transitionId": "stable-group",
+                "items": [item(["id": action, "transitionId": "stable-button"])]])]).controls
+        }
+        let rendering = NativeUIControlRendering()
+        rail.apply(try page("old-action"), rendering: rendering, edge: "right", animated: false)
+        let host = NativeUIOverlayHost(configuration: WKWebViewConfiguration(), options: nil, event: { _ in })
+        var results: [Bool] = []
+        XCTAssertTrue(rail.presentPopover(anchor: "old-action", host: host) { results.append($0) })
+        XCTAssertFalse(host.anchoredVisible)
+        rail.apply(try page("new-action"), rendering: rendering, edge: "right", animated: false)
+        XCTAssertEqual(results, [false])
+        rail.apply(try page("new-action"), rendering: rendering, edge: "right", animated: false)
+        XCTAssertEqual(results, [false])
+        let next = NativeUIOverlayHost(configuration: WKWebViewConfiguration(), options: nil, event: { _ in })
+        XCTAssertTrue(rail.presentPopover(anchor: "new-action", host: next) { _ in })
+    }
+
+    @MainActor func testToolbarTransitionIdentityDoesNotReplaceActionIdentity() throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("Requires SwiftUI toolbar") }
+        let model = NativeUIVerticalBarsModel()
+        let rendering = NativeUIControlRendering()
+        func page(_ source: String, _ label: String) throws -> [NativeUIControl] {
+            try decode([control(["id": "group-\(source)", "kind": "button", "transitionId": "trailing-group-0",
+                "items": [item(["id": source, "transitionId": "edit", "label": label])]])]).controls
+        }
+        model.apply(try page("source-edit", "Edit"), rendering: rendering, animated: false)
+        let outgoing = try XCTUnwrap(model.groups.first?.items.first)
+        model.apply(try page("destination-done", "Done"), rendering: rendering, animated: false)
+        let incoming = try XCTUnwrap(model.groups.first?.items.first)
+        XCTAssertEqual(outgoing.transitionID, incoming.transitionID)
+        XCTAssertNotEqual(outgoing.id, incoming.id)
+        XCTAssertEqual(incoming.id, "destination-done")
+        XCTAssertEqual(incoming.label, "Done")
+        XCTAssertEqual(model.groups.first?.transitionID, "trailing-group-0")
+        model.apply(try page("source-edit", "Edit"), rendering: rendering, animated: false)
+        XCTAssertEqual(model.groups.first?.items.first?.id, outgoing.id)
+        model.apply(try decode([control(["kind": "button", "items": [item(["id": "legacy"])]])]).controls,
+                    rendering: rendering, animated: false)
+        XCTAssertEqual(model.groups.first?.items.first?.transitionID, "legacy")
+    }
+
+    @MainActor func testSwiftUIToolbarForwardsTransitionIdentifier() async throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("Requires SwiftUI toolbar") }
+        let owner = UIViewController()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        window.rootViewController = owner
+        window.makeKeyAndVisible()
+        let rail = NativeUIVerticalBarsController(activate: { _ in }, changed: { _, _, _, _, _ in 0 })
+        rail.attach(to: owner, in: owner.view)
+        defer { rail.detach(); window.isHidden = true }
+        func buttons(_ vc: UIViewController) -> [UIBarButtonItem] {
+            var result: [UIBarButtonItem] = []
+            if let nav = vc as? UINavigationController {
+                for entry in nav.navigationBar.items ?? [] {
+                    let groups = entry.leadingItemGroups + entry.centerItemGroups + entry.trailingItemGroups
+                    result += groups.flatMap(\.barButtonItems)
+                }
+            }
+            return result + vc.children.flatMap(buttons)
+        }
+        // Push and return replace source content while keeping the presentation ID.
+        for (page, action, label, disabled) in [("one", "edit", "Edit", false), ("one", "edit", "Saving", true),
+            ("one", "replacement", "Retry", false), ("two", "done", "Done", false), ("one", "edit", "Edit", false)] {
+            let controls = try decode([control(["id": "group-\(page)", "kind": "button", "placement": "vertical-bars",
+                "transitionId": "group-position-0", "items": [item(["id": "action-\(action)",
+                "label": label, "disabled": disabled, "transitionId": "presentation-edit"])]])]).controls
+            rail.apply(controls, rendering: NativeUIControlRendering(), edge: "right", animated: false)
+            for _ in 0..<40 {
+                owner.view.layoutIfNeeded()
+                if buttons(owner).contains(where: { $0.identifier == "presentation-edit" && $0.title == label && $0.isEnabled == !disabled }) { break }
+                try await Task.sleep(nanoseconds: 50_000_000)
+            }
+            let presented = buttons(owner).filter { $0.identifier == "presentation-edit" }
+            XCTAssertEqual(presented.count, 1)
+            XCTAssertEqual(presented.first?.title, label)
+            XCTAssertEqual(presented.first?.isEnabled, !disabled)
+            XCTAssertFalse(buttons(owner).contains { $0.identifier == "action-\(action)" })
+        }
+    }
+
+    @MainActor func testVerticalNavigationUsesTheWebStackAndRetainsOutgoingContent() async throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("Requires SwiftUI navigation") }
+        let owner = UIViewController()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        window.rootViewController = owner
+        window.makeKeyAndVisible()
+        let rail = NativeUIVerticalBarsController(activate: { _ in }, changed: { _, _, _, _, _ in 0 })
+        rail.attach(to: owner, in: owner.view)
+        defer { rail.detach(); window.isHidden = true }
+        func navigation(_ vc: UIViewController) -> UINavigationController? {
+            (vc as? UINavigationController) ?? vc.children.compactMap(navigation).first
+        }
+        let model = NativeUIVerticalBarsModel()
+        var outgoing: String?
+        // Push, pop and canceled-pop restoration must preserve each page's content,
+        // even though both pages use the same presentation identities.
+        for path in [["root"], ["root", "detail"], ["root"], ["root", "detail"]] {
+            let page = path.last!
+            let controls = try decode([control(["id": page, "kind": "button", "placement": "vertical-bars",
+                "transitionId": "end-0", "items": [item(["id": page, "label": page, "transitionId": "action-0"])]])]).controls
+            if let outgoing {
+                let previousCount = navigation(owner)?.viewControllers.count
+                rail.apply(controls, rendering: NativeUIControlRendering(), edge: "right", animated: true,
+                           navigation: path, navigationPhase: "tracking")
+                try await Task.sleep(nanoseconds: 500_000_000)
+                owner.view.layoutIfNeeded()
+                XCTAssertEqual(navigation(owner)?.viewControllers.count, previousCount)
+                let entry = navigation(owner)?.topViewController?.navigationItem
+                let titles = ((entry?.leadingItemGroups ?? []) + (entry?.trailingItemGroups ?? [])).flatMap(\.barButtonItems).compactMap(\.title)
+                XCTAssertTrue(titles.contains(outgoing))
+                XCTAssertFalse(rail.view.isUserInteractionEnabled)
+            }
+            rail.apply(controls, rendering: NativeUIControlRendering(), edge: "right", animated: false,
+                       navigation: path, navigationPhase: "settling")
+            XCTAssertFalse(rail.view.isUserInteractionEnabled)
+            rail.apply(controls, rendering: NativeUIControlRendering(), edge: "right", animated: false, navigation: path)
+            XCTAssertTrue(rail.view.isUserInteractionEnabled)
+            model.apply(controls, rendering: NativeUIControlRendering(), animated: false, navigation: path)
+            for retainedPage in Set([page] + (outgoing.map { [$0] } ?? [])) {
+                let group = try XCTUnwrap(model.groups(on: retainedPage).first)
+                XCTAssertEqual(group.id, retainedPage)
+                XCTAssertEqual(group.items.map(\.id), [retainedPage])
+                XCTAssertEqual(group.items.map(\.label), [retainedPage])
+            }
+            outgoing = page
+            for _ in 0..<40 {
+                owner.view.layoutIfNeeded()
+                if navigation(owner)?.viewControllers.count == path.count { break }
+                try await Task.sleep(nanoseconds: 50_000_000)
+            }
+            XCTAssertEqual(navigation(owner)?.viewControllers.count, path.count)
+        }
+    }
+
     func testStandardRendererKindsDoNotRequireIonicNames() throws {
         let pairs: [(String, String, NativeUIComponent)] = [
             ("button", "ion-button", .button), ("button-group", "ion-buttons", .buttons),
@@ -201,6 +375,61 @@ final class NativeUISnapshotTests: XCTestCase {
                 XCTAssertEqual(font.pointSize, 19)
                 XCTAssertEqual(font, UIFont.systemFont(ofSize: 19, weight: weight), "CSS weight \(cssWeight)")
             }
+        }
+    }
+
+    @MainActor func testVerticalSnapshotKeepsOneAnimationTransaction() async throws {
+        guard #available(iOS 26.0, *), !UIAccessibility.isReduceMotionEnabled else {
+            throw XCTSkip("Requires adaptive controls with motion enabled")
+        }
+        struct Probe: View {
+            @ObservedObject var model: NativeUIVerticalBarsModel
+            let observed: (Bool) -> Void
+            var body: some View {
+                Text("\(model.groups.count):\(model.tabs.count):\(model.selection):\(model.accessory != nil)")
+                    .transaction { observed($0.animation != nil) }
+            }
+        }
+        let model = NativeUIVerticalBarsModel()
+        var next: XCTestExpectation?
+        var animatedTransaction: Bool?
+        let host = UIHostingController(rootView: Probe(model: model) { animated in
+            guard let pending = next else { return }
+            animatedTransaction = animated
+            next = nil
+            pending.fulfill()
+        })
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 440, height: 900))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        host.view.layoutIfNeeded()
+        defer { window.isHidden = true }
+        for animated in [true, false] {
+            let updated = expectation(description: "snapshot animated=\(animated)")
+            next = updated
+            model.apply(try decode([control(["kind": "ion-button"])]).controls,
+                        rendering: NativeUIControlRendering(), animated: animated,
+                        accessory: animated ? AnyView(Text("Player")) : nil)
+            await fulfillment(of: [updated], timeout: 3)
+            XCTAssertEqual(animatedTransaction, animated)
+        }
+    }
+
+    @MainActor func testVerticalMenuAndBackReuseTheSameLeadingSurface() throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("Requires SwiftUI adaptive controls") }
+        let model = NativeUIVerticalBarsModel()
+        for kind in ["menu-button", "back-button", "menu-button"] {
+            let controls = try decode([control(["kind": kind, "placement": "vertical-bars",
+                "transitionId": "start-0", "toolbarSlot": kind == "back-button" ? NSNull() : "start", "items": [item(["id": kind, "transitionId": "start-0-item-0", "disabled": true])]
+            ])]).controls
+            model.apply(controls, rendering: NativeUIControlRendering())
+            XCTAssertEqual(model.groups.count, 1)
+            XCTAssertEqual(model.groups[0].transitionID, "start-0")
+            XCTAssertEqual(model.groups[0].slot, .start)
+            XCTAssertEqual(model.groups[0].items[0].transitionID, "start-0-item-0")
+            XCTAssertEqual(model.groups[0].items[0].id, kind)
+            XCTAssertEqual(model.groups[0].items[0].isBack, kind == "back-button")
+            XCTAssertTrue(model.groups[0].items[0].disabled)
         }
     }
 
@@ -467,6 +696,239 @@ final class NativeUISnapshotTests: XCTestCase {
         XCTAssertEqual(searchBar.text, "native edit")
         try apply("new-search", value: "replacement initial")
         XCTAssertEqual(searchBar.text, "replacement initial")
+    }
+
+    @MainActor
+    func testButtonDisabledAccessibilityTracksReusedView() throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("Requires glass buttons") }
+        let rendering = NativeUIControlRendering()
+        var button: UIButton?
+        for disabled in [false, true, false] {
+            let node = try XCTUnwrap(decode([control(["kind": "ion-button", "items": [item(["disabled": disabled])]])]).controls.first)
+            button = try XCTUnwrap(NativeUIButton.make(node, existing: button, rendering: rendering, activate: { _ in }))
+            XCTAssertEqual(button?.isEnabled, !disabled)
+            XCTAssertEqual(button?.accessibilityTraits.contains(.notEnabled), disabled)
+        }
+    }
+
+    @MainActor
+    func testClearStandaloneToolbarButtonHasNoGlassBackground() throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("Requires glass buttons") }
+        let node = try XCTUnwrap(decode([control(["kind": "ion-button", "items": [item(["label": "Cancel", "buttonFill": "clear"]) ]])]).controls.first)
+        let button = try XCTUnwrap(NativeUIButton.make(node, rendering: NativeUIControlRendering(), activate: { _ in }))
+        XCTAssertEqual(button.configuration?.background, UIButton.Configuration.plain().background)
+        XCTAssertEqual(button.configuration?.title, "Cancel")
+    }
+
+    @MainActor
+    func testToolbarInterpolatesAtEveryPagePercentageAndRestoresOnCancellation() throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("Requires glass buttons") }
+        let source = try XCTUnwrap(decode([control(["id": "source", "kind": "ion-menu-button", "transitionId": "leading",
+            "x": 10.0, "width": 44.0, "items": [item(["id": "menu", "label": "Menu", "transitionId": "button", "width": 44.0]) ]])]).controls.first)
+        let destination = try XCTUnwrap(decode([control(["id": "target", "kind": "ion-back-button", "transitionId": "leading",
+            "x": 30.0, "width": 64.0, "items": [item(["id": "back", "label": "Back", "transitionId": "button", "width": 64.0, "disabled": true]) ]])]).controls.first)
+        let host = UIView()
+        let rendering = NativeUIControlRendering()
+        let button = try XCTUnwrap(NativeUIButton.make(source, rendering: rendering, activate: { _ in }))
+        button.frame = source.frame.rect
+        host.addSubview(button)
+        let transition = NativeUIToolbarTransition(NativeUIToolbarTransitionSnapshot(id: 1, sourceIds: [source.id], destination: [destination]),
+            sources: [source], controls: [source.id: button], scale: 1, origin: .zero, rendering: rendering)
+        let contents = button.subviews.compactMap { $0 as? UIButton }
+        let old = try XCTUnwrap(contents.first { $0.accessibilityIdentifier == "menu" })
+        let new = try XCTUnwrap(contents.first { $0.accessibilityIdentifier == "back" })
+        for value in [0.0, 0.2, 0.4, 0.6, 0.8, 1.0, 0.4, 0.0] {
+            transition.setProgress(value)
+            XCTAssertEqual(button.frame.minX, 10 + 20 * value, accuracy: 0.001)
+            XCTAssertEqual(button.frame.width, 44 + 20 * value, accuracy: 0.001)
+            XCTAssertEqual(button.alpha, 1)
+            XCTAssertEqual(old.alpha, value == 0 ? 1 : 0)
+            XCTAssertEqual(new.alpha, value > 0 ? 1 : 0)
+            XCTAssertTrue(old.isEnabled)
+            XCTAssertFalse(new.isEnabled)
+            XCTAssertFalse(old.isUserInteractionEnabled)
+            XCTAssertFalse(new.isUserInteractionEnabled)
+            XCTAssertEqual(old.bounds.width, 44)
+            XCTAssertEqual(new.bounds.width, 64)
+            XCTAssertEqual(old.center.x, new.center.x, accuracy: 0.001)
+        }
+        transition.restore()
+        XCTAssertEqual(button.frame, source.frame.rect)
+        XCTAssertEqual(button.configuration?.title, "Menu")
+        XCTAssertTrue(button.isEnabled)
+        XCTAssertNil(new.superview)
+    }
+
+    @MainActor
+    func testSingleAndGroupMorphBothWaysAndRestoreIncludingClearBackground() throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("Requires glass buttons") }
+        for groupX in [40.0, 200.0] {
+            for clear in [false, true] {
+                let single = try XCTUnwrap(decode([control(["id": "single", "kind": "ion-button", "transitionId": "surface",
+                    "x": 100.0, "width": 44.0, "items": [item(["id": "a-single", "label": "A", "transitionId": "a", "width": 44.0,
+                        "buttonFill": clear ? "clear" : "solid"]) ]])]).controls.first)
+                let group = try XCTUnwrap(decode([control(["id": "group", "kind": "ion-buttons", "transitionId": "surface",
+                    "x": groupX, "width": 104.0, "items": [
+                        item(["id": "a-group", "label": "A", "transitionId": "a", "width": 44.0]),
+                        item(["id": "b-group", "label": "B", "transitionId": "b", "x": 60.0, "width": 44.0]) ]])]).controls.first)
+                for (source, destination) in [(single, group), (group, single)] {
+                    let rendering = NativeUIControlRendering()
+                    let view: UIView = source.kind == .buttons
+                        ? NativeUIButtons.make(source, scale: 1, rendering: rendering, activate: { _ in })
+                        : try XCTUnwrap(NativeUIButton.make(source, rendering: rendering, activate: { _ in }))
+                    view.frame = source.frame.rect
+                    let originalClipping = view.clipsToBounds
+                    let originalConfiguration = (view as? UIButton)?.configuration
+                    let transition = NativeUIToolbarTransition(NativeUIToolbarTransitionSnapshot(id: 1, sourceIds: [source.id], destination: [destination]),
+                        sources: [source], controls: [source.id: view], scale: 1, origin: .zero, rendering: rendering)
+                    let host = (view as? UIVisualEffectView)?.contentView ?? view
+                    let extra = try XCTUnwrap(host.subviews.compactMap { $0 as? UIButton }.last { $0.accessibilityIdentifier == "b-group" })
+                    for progress in [0.0, 0.2, 0.5, 0.8, 1.0, 0.5, 0.0] {
+                        transition.setProgress(progress)
+                        XCTAssertEqual(view.clipsToBounds, originalClipping)
+                        XCTAssertEqual(view.frame.width, source.frame.width + (destination.frame.width - source.frame.width) * progress, accuracy: 0.001)
+                        let amount = source.kind == .buttons ? 1 - progress : progress
+                        XCTAssertEqual(extra.transform.a, max(0.001, amount), accuracy: 0.001)
+                        let start = source.kind == .buttons ? groupX + 82 : 122
+                        let end = destination.kind == .buttons ? groupX + 82 : 122
+                        XCTAssertEqual(view.frame.minX + extra.center.x, start + (end - start) * progress, accuracy: 0.001)
+                        XCTAssertEqual(extra.alpha, amount > 0 ? 1 : 0)
+                        if source.kind == .buttons && clear {
+                            XCTAssertEqual((view as? UIVisualEffectView)?.effect == nil, progress > 0)
+                        }
+                    }
+                    transition.restore()
+                    XCTAssertEqual(view.frame, source.frame.rect)
+                    XCTAssertEqual(view.clipsToBounds, originalClipping)
+                    XCTAssertEqual((view as? UIButton)?.configuration, originalConfiguration)
+                    if source.kind == .buttons { XCTAssertNotNil((view as? UIVisualEffectView)?.effect) }
+                    XCTAssertNil(extra.superview)
+                }
+            }
+        }
+    }
+
+    @MainActor
+    func testNewToolbarDestinationUsesItsNativeViewThroughProgressAndRestoration() throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("Requires glass buttons") }
+        let destination = try XCTUnwrap(decode([control(["id": "save", "kind": "ion-button", "transitionId": "end-1",
+            "items": [item(["id": "save-action", "label": "Save"]) ]])]).controls.first)
+        let rendering = NativeUIControlRendering()
+        let button = try XCTUnwrap(NativeUIButton.make(destination, rendering: rendering, activate: { _ in }))
+        let host = UIView()
+        host.addSubview(button)
+        let transition = NativeUIToolbarTransition(NativeUIToolbarTransitionSnapshot(id: 1, sourceIds: [], destination: [destination]),
+            sources: [], controls: [destination.id: button], scale: 1, origin: .zero, rendering: rendering)
+        for progress in [0.0, 0.2, 0.5, 1.0, 0.5, 0.0] {
+            transition.setProgress(progress)
+            XCTAssertTrue(button.superview === host)
+            XCTAssertEqual(button.alpha, progress, accuracy: 0.001)
+            XCTAssertEqual(button.transform.a, max(0.001, progress), accuracy: 0.001)
+            XCTAssertFalse(button.isUserInteractionEnabled)
+        }
+        transition.restore()
+        XCTAssertTrue(button.superview === host)
+        XCTAssertEqual(button.alpha, 1)
+        XCTAssertEqual(button.transform, .identity)
+        XCTAssertTrue(button.isUserInteractionEnabled)
+    }
+
+    @MainActor
+    func testUnmatchedToolbarSurfaceFadesInPlaceAndRestoresOnCancellation() throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("Requires glass buttons") }
+        for group in [false, true] {
+            let source = try XCTUnwrap(decode([control(["id": "source", "kind": group ? "ion-buttons" : "ion-button",
+                "items": [item(["id": "action", "label": "Save", "disabled": true]) ]])]).controls.first)
+            let rendering = NativeUIControlRendering()
+            let view: UIView = group
+                ? NativeUIButtons.make(source, scale: 1, rendering: rendering, activate: { _ in })
+                : try XCTUnwrap(NativeUIButton.make(source, rendering: rendering, activate: { _ in }))
+            view.frame = source.frame.rect
+            view.alpha = 0.7
+            let host = UIView()
+            host.addSubview(view)
+            let transition = NativeUIToolbarTransition(NativeUIToolbarTransitionSnapshot(id: 1, sourceIds: [source.id], destination: []),
+                sources: [source], controls: [source.id: view], scale: 1, origin: .zero, rendering: rendering)
+            for progress in [0.0, 0.2, 0.5, 0.8, 1.0, 0.5, 0.0] {
+                transition.setProgress(progress)
+                XCTAssertTrue(view.superview === host)
+                XCTAssertEqual(view.frame, source.frame.rect)
+                XCTAssertEqual(view.alpha, 0.7 * (1 - progress), accuracy: 0.001)
+                XCTAssertFalse(view.isUserInteractionEnabled)
+            }
+            transition.restore()
+            XCTAssertEqual(view.alpha, 0.7, accuracy: 0.001)
+            XCTAssertTrue(view.isUserInteractionEnabled)
+            let buttons = group ? (view as? UIVisualEffectView)?.contentView.subviews.compactMap { $0 as? UIButton } ?? [] : [try XCTUnwrap(view as? UIButton)]
+            XCTAssertFalse(try XCTUnwrap(buttons.first).isEnabled)
+        }
+    }
+
+    @MainActor
+    func testUnchangedBackContentStaysOpaqueAtEveryPagePercentage() throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("Requires glass buttons") }
+        let source = try XCTUnwrap(decode([control(["id": "source", "kind": "ion-back-button", "transitionId": "leading",
+            "items": [item(["id": "old", "label": "Back", "transitionId": "button"]) ]])]).controls.first)
+        let destination = try XCTUnwrap(decode([control(["id": "target", "kind": "ion-back-button", "transitionId": "leading",
+            "items": [item(["id": "new", "label": "Back", "transitionId": "button"]) ]])]).controls.first)
+        let host = UIView()
+        let rendering = NativeUIControlRendering()
+        let button = try XCTUnwrap(NativeUIButton.make(source, rendering: rendering, activate: { _ in }))
+        host.addSubview(button)
+        let transition = NativeUIToolbarTransition(NativeUIToolbarTransitionSnapshot(id: 1, sourceIds: [source.id], destination: [destination]),
+            sources: [source], controls: [source.id: button], scale: 1, origin: .zero, rendering: rendering)
+        let contents = button.subviews.compactMap { $0 as? UIButton }
+        XCTAssertEqual(contents.count, 1)
+        for value in [0.0, 0.2, 0.4, 0.6, 0.8, 1.0] {
+            transition.setProgress(value)
+            XCTAssertEqual(contents.first?.alpha, 1)
+        }
+        transition.restore()
+    }
+
+    @MainActor
+    func testMenuToBackReusesButtonAndReplacesItsAction() throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("Requires native glass buttons") }
+        let menu = try XCTUnwrap(decode([control(["id": "menu-control", "kind": "ion-menu-button",
+            "items": [item(["id": "menu", "transitionId": "leading-0", "selected": true])]])]).controls.first)
+        let back = try XCTUnwrap(decode([control(["id": "back-control", "kind": "ion-back-button",
+            "items": [item(["id": "back", "transitionId": "leading-0"])]])]).controls.first)
+        var actions: [String] = []
+        let button = try XCTUnwrap(NativeUIButton.make(menu, rendering: NativeUIControlRendering(), activate: { actions.append($0) }))
+        button.sendActions(for: .touchUpInside)
+        var controls: [String: UIView] = [menu.id: button]
+        var fingerprints = [menu.id: menu]
+        XCTAssertEqual(NativeUIButton.reassociate([back], controls: &controls, fingerprints: &fingerprints), [back.id])
+        XCTAssertNil(controls[menu.id])
+        XCTAssertNil(fingerprints[menu.id])
+        XCTAssertTrue(controls[back.id] === button)
+        let updated = try XCTUnwrap(NativeUIButton.make(back, existing: controls[back.id] as? UIButton,
+            rendering: NativeUIControlRendering(), activate: { actions.append($0) }))
+        XCTAssertTrue(updated === button)
+        XCTAssertEqual(updated.accessibilityIdentifier, "back")
+        XCTAssertFalse(updated.accessibilityTraits.contains(.selected))
+        updated.sendActions(for: .touchUpInside)
+        XCTAssertEqual(actions, ["menu", "back"])
+    }
+
+    @MainActor
+    func testButtonReassociationRejectsAmbiguousOrStillLiveSources() throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("Requires native glass buttons") }
+        func node(_ id: String, key: String?) throws -> NativeUIControl {
+            var content = item(["id": id])
+            if let key { content["transitionId"] = key }
+            return try XCTUnwrap(decode([control(["id": id, "kind": "ion-button", "items": [content]])]).controls.first)
+        }
+        let old = try node("old", key: "slot")
+        let next = try node("next", key: "slot")
+        let duplicate = try node("duplicate", key: "slot")
+        let legacy = try node("legacy", key: nil)
+        for incoming in [[old, next], [next, duplicate], [legacy]] {
+            var controls: [String: UIView] = [old.id: UIButton()]
+            var fingerprints = [old.id: old]
+            XCTAssertTrue(NativeUIButton.reassociate(incoming, controls: &controls, fingerprints: &fingerprints).isEmpty)
+            XCTAssertNotNil(controls[old.id])
+        }
     }
 
     @MainActor
