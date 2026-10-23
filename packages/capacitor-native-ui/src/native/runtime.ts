@@ -88,6 +88,7 @@ export const createRuntime = async (
   let verticalGesture: { pending: boolean; scopes: HTMLElement[]; sources: Set<HTMLElement> } | undefined;
   let acknowledged: Candidate[] = [];
   const pages = new Set<HTMLElement>();
+  const tabActivationPages = new Map<HTMLElement, number>();
   const verticalBarsPages = createVerticalBarsPageState();
   const presented = new Set<HTMLElement>();
   const railPopovers = new WeakSet<HTMLElement>();
@@ -103,7 +104,10 @@ export const createRuntime = async (
   let updatingRevision: number | undefined;
   let pendingActivations: NativeUIActivation[] = [];
   let lastSequence = 0;
+  let lastTabSequence = 0;
   let lastSnapshot = '';
+  let renderedSnapshot: NativeUISnapshot | undefined;
+  let interruptAssets: (() => void) | undefined;
   let viewport = `${win.innerWidth}:${win.innerHeight}`;
   let forceRefresh = false;
   let dirty = false;
@@ -269,6 +273,7 @@ export const createRuntime = async (
     }
   };
   const blocked = (element: HTMLElement) =>
+    Array.from(tabActivationPages.keys()).some((page) => page.contains(element)) ||
     verticalBarsPages.isDeparted(element, true) ||
     (!isVerticalBarsSource(element) &&
       (Array.from(suspended).some((scopes) => scopes.some((scope) => scope.contains(element))) ||
@@ -417,13 +422,82 @@ export const createRuntime = async (
     frame = 0;
     dirty = false;
     pending = true;
-    if (options.source !== 'extensions') syncToolbarText(doc);
     handoffInstant = tabSwitchHandoff || handoffAcrossPending || modalPresentHandoff || win.performance.now() < handoffUntil;
     try {
       // A retained sync performs no update; keep the modal handoff armed so the
       // deferred retirement still runs instantly after the overlay releases.
       if (retentions.size && !manualSuspensions.size) return;
       modalPresentHandoff = false;
+      // A tab is a separate page, not a stack transition. Retire its covers before
+      // rendering destination assets, which may continue changing as the page loads.
+      // Keep shared surfaces (especially the tab bar and its accessory) native.
+      if ((tabSwitchHandoff || handoffAcrossPending || win.performance.now() < handoffUntil) && renderedSnapshot && !navigation.current) {
+        const retained = acknowledged.filter(
+          (candidate) =>
+            candidate.element.isConnected &&
+            !verticalBarsPages.isDeparted(candidate.element, true) &&
+            !candidate.element.closest('.ion-page-hidden') &&
+            !Array.from(tabActivationPages.keys()).some((page) => page.contains(candidate.element)),
+        );
+        const retiredSearches = new Set(
+          retained
+            .filter(
+              (candidate) =>
+                candidate.control.search?.available &&
+                candidateSources(candidate).some(
+                  (source) => !source.isConnected || verticalBarsPages.isDeparted(source, true) || !!source.closest('.ion-page-hidden'),
+                ),
+            )
+            .map((candidate) => candidate.control.id),
+        );
+        if (retained.length !== acknowledged.length || retiredSearches.size) {
+          // The tabs are shared, but their Search belongs to the departing page.
+          // Retire it before destination assets without returning its FAB to Web.
+          for (const candidate of retained) {
+            if (!retiredSearches.has(candidate.control.id)) continue;
+            const configuration = candidate.control.search!;
+            getNativeSearchBindings(doc)
+              .filter((binding) => candidateSources(candidate).includes(binding.footer))
+              .forEach((binding) => search.retire(binding, true));
+            candidate.control = { ...candidate.control, search: { ...configuration, available: false, active: false, focused: false } };
+            candidate.actions.delete(configuration.trigger.id);
+            candidate.actions.delete(configuration.closeId);
+          }
+          const retainedIds = new Set(retained.map((candidate) => candidate.control.id));
+          const retainedSources = new Set(retained.flatMap(candidateSources));
+          for (const element of sources.keys()) if (!retainedSources.has(element)) restore(element, true);
+          const retirement: NativeUISnapshot = {
+            ...renderedSnapshot,
+            revision: ++revision,
+            transitionDuration: 0,
+            toolbarTransition: undefined,
+            verticalBarNavigation: undefined,
+            controls: renderedSnapshot.controls
+              .filter((control) => retainedIds.has(control.id))
+              .map((control) =>
+                retiredSearches.has(control.id)
+                  ? { ...control, search: { ...control.search!, available: false, active: false, focused: false } }
+                  : control,
+              ),
+          };
+          updatingRevision = retirement.revision;
+          updates++;
+          const result = await bounded(plugin.update(retirement));
+          if (stopped) return;
+          if (result.revision !== retirement.revision) throw new Error('Native UI revision mismatch');
+          renderedSnapshot = retirement;
+          acceptedRevision = result.revision;
+          acknowledged = retained;
+          actions = new Map(retained.flatMap((candidate) => Array.from(candidate.actions)));
+          lastSnapshot = '';
+          const received = pendingActivations;
+          pendingActivations = [];
+          received.forEach(activate);
+          if (tabActivationPages.size) finishWaiters();
+          if (dirty) return;
+        }
+      }
+      if (options.source !== 'extensions') syncToolbarText(doc);
       const size = `${win.innerWidth}:${win.innerHeight}`;
       // WebKit can resize before Ionic's fixed DOM positions catch up.
       // Measure on the next frame instead of retiring a valid native search.
@@ -437,7 +511,7 @@ export const createRuntime = async (
       const signatures = new Map(candidates.map((candidate) => [candidate.element, signature(candidate)]));
       const rejectionSignatures = new Map(candidates.map((candidate) => [candidate.element, signature(candidate, false)]));
       const failedAssets = new Set<Candidate>();
-      await Promise.all(
+      const assets = Promise.all(
         candidates.map(async (candidate) => {
           try {
             await candidate.assets?.render(icons);
@@ -457,6 +531,10 @@ export const createRuntime = async (
           );
         }),
       );
+      // A tab change invalidates this page. Do not let an in-flight image decode
+      // postpone retirement of its native covers.
+      await Promise.race([assets, new Promise<void>((resolve) => (interruptAssets = resolve))]);
+      interruptAssets = undefined;
       candidates = candidates.filter((candidate) => !failedAssets.has(candidate));
       if (stopped || dirty || (retentions.size && !manualSuspensions.size)) return;
       const retained = new Set([...candidates.flatMap(candidateSources), ...(verticalGesture?.sources ?? [])]);
@@ -555,7 +633,10 @@ export const createRuntime = async (
         controls: candidates.map((candidate) => candidate.control),
       };
       const serialized = JSON.stringify(data);
-      if (serialized === lastSnapshot && !forceRefresh) return;
+      if (serialized === lastSnapshot && !forceRefresh) {
+        search.settle((element) => Array.from(pages).some((page) => page.contains(element)));
+        return;
+      }
       const snapshot: NativeUISnapshot = {
         ...data,
         revision: ++revision,
@@ -615,6 +696,7 @@ export const createRuntime = async (
           .flatMap((candidate) => Array.from(candidate.actions.values())),
       );
       const invalidated = candidates.length !== accepted.length;
+      renderedSnapshot = snapshot;
       acceptedRevision = result.revision;
       lastSnapshot = invalidated ? '' : serialized;
       actions = new Map(
@@ -657,6 +739,7 @@ export const createRuntime = async (
           if (newlyProjected) element.dispatchEvent(new CustomEvent('nativeUIChange'));
         }
       }
+      if (!dirty && !invalidated) search.settle((element) => Array.from(pages).some((page) => page.contains(element)));
       // Native has acknowledged this rendered snapshot even when a concurrent DOM
       // mutation invalidates its signature. An existing cover is still visible;
       // keep that snapshot available if navigation starts before the next update.
@@ -796,6 +879,7 @@ export const createRuntime = async (
   const pageWill: EventListener = (event) => {
     const page = event.target as HTMLElement;
     verticalBarsPages.lifecycle(event);
+    tabActivationPages.delete(page);
     getNativeSearchBindings(doc)
       .filter((binding) => page.contains(binding.footer))
       .forEach((binding) => search.retire(binding));
@@ -810,11 +894,13 @@ export const createRuntime = async (
       maskNavigationPage(page);
     }
     pages.add(page);
+    if (event.type === LIFECYCLE_WILL_ENTER && nativeVerticalBars()) search.prepare(page);
     schedule();
   };
   const pageDid: EventListener = (event) => {
     const page = event.target as HTMLElement;
     verticalBarsPages.lifecycle(event);
+    tabActivationPages.delete(page);
     pages.delete(page);
     if (navigation.current && !navigation.current.leased && pages.size === 0) finishNavigation();
     schedule();
@@ -834,6 +920,9 @@ export const createRuntime = async (
   };
   const armTabSwitchHandoff = () => {
     tabSwitchHandoff = true;
+    navigation.clear();
+    interruptAssets?.();
+    crossfade.finish();
     // Retiring outgoing controls often lands in a later async sync than WillLeave/DidChange.
     handoffUntil = Math.max(handoffUntil, win.performance.now() + 400);
     // The in-flight sync already captured handoffInstant=false; hold instant for the next one.
@@ -960,6 +1049,7 @@ export const createRuntime = async (
   on(win, 'scroll');
   on(win.matchMedia('(prefers-color-scheme: dark)'), 'change');
   on(win, 'nativeUIRefresh', (event) => {
+    if (nativeVerticalBars()) search.prepare();
     if ((event as Event & { retireSearch?: boolean }).retireSearch)
       getNativeSearchBindings(doc).forEach((binding) => search.retire(binding));
     refreshLayout();
@@ -1089,6 +1179,40 @@ export const createRuntime = async (
       candidate?.control.search && [candidate.control.search.trigger.id, candidate.control.search.closeId].includes(event.id);
     const extensionAction = candidate?.control.kind === 'extension' && candidate.actions.get(event.id) === element;
     if (!extensionAction && !searchAction && (!item || item.disabled || item.visible === false)) return false;
+    // A native tab tap must release the old page's covers before Ionic exposes
+    // the destination. Waiting for WillLeave is too late for an unanimated swap.
+    if (element.matches('ion-tab-button')) lastTabSequence = event.sequence;
+    if (element.matches('ion-tab-button') && !element.classList.contains('tab-selected')) {
+      const tabs = element.closest('ion-tabs');
+      const leaving = new Set(
+        acknowledged
+          .map((source) => source.element.closest<HTMLElement>('.ion-page'))
+          .filter((page): page is HTMLElement => !!page && !!tabs?.contains(page)),
+      );
+      leaving.forEach((page) => tabActivationPages.set(page, event.sequence));
+      armTabSwitchHandoff();
+      void flush().then(() => {
+        if (stopped) return;
+        if (event.sequence === lastTabSequence && element.isConnected && !(element as HTMLIonTabButtonElement).disabled)
+          activateProjectedElement(element);
+        // WillLeave/WillEnter release these scopes once Ionic commits the route.
+        // If a router guard rejects it, restore native ownership after the handoff window.
+        win.setTimeout(
+          () => {
+            leaving.forEach((page) => {
+              if (tabActivationPages.get(page) === event.sequence) tabActivationPages.delete(page);
+            });
+            // Rejected selection emits no DidChange/pageDid to end the handoff.
+            if (!tabActivationPages.size && !pages.size) endTabSwitchHandoff();
+            if (!stopped) schedule();
+          },
+          Math.max(0, handoffUntil - win.performance.now()),
+        );
+        lastSnapshot = '';
+        schedule();
+      });
+      return true;
+    }
     // The original Ionic host owns form submission, routerLink and selection events.
     activateProjectedElement(element);
     lastSnapshot = ''; // Reconcile even if Ionic rejects the proposed native selection.

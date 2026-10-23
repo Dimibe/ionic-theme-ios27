@@ -1,6 +1,6 @@
 import { getNativeSearchBindings, requestNativeSearch } from '../../native-integration';
 import type { NativeSearchBinding } from '../../native-integration';
-import { excluded, inFixedToolbar, isNativeUIDisabled, marker, text, visible, withoutPrehide } from '../shared/dom';
+import { excluded, inFixedToolbar, isNativeUIDisabled, marker, prehiddenClass, text, visible, withoutPrehide } from '../shared/dom';
 import { iconSource } from '../shared/icons';
 import type { Candidate } from '../shared/candidate';
 import type { NativeUIItem, NativeUISearch, NativeUISearchEvent } from '../definitions';
@@ -24,6 +24,8 @@ interface SearchState {
 
 export const createSearchSupport = (doc: Document, id: (element: Element) => string, schedule: () => void) => {
   const states = new Map<NativeSearchBinding, SearchState>();
+  const enteringTriggers = new Map<HTMLElement, NativeSearchBinding>();
+  const preparedBindings = new WeakSet<NativeSearchBinding>();
   let keyboardVisible = false;
   let heldKeyboardResize: string | null = null;
   let keyboardResizeGeneration = 0;
@@ -177,6 +179,32 @@ export const createSearchSupport = (doc: Document, id: (element: Element) => str
       }
       schedule();
     },
+    prepare(scope: ParentNode = doc) {
+      for (const binding of getNativeSearchBindings(doc)) {
+        if (
+          (scope === doc && preparedBindings.has(binding)) ||
+          !scope.contains(binding.trigger) ||
+          !binding.trigger.closest('ion-app.ios-theme-vertical-bars') ||
+          binding.trigger.closest('.ion-page-hidden') ||
+          isNativeUIDisabled(binding.trigger)
+        )
+          continue;
+        preparedBindings.add(binding);
+        const trigger = binding.trigger.closest<HTMLElement>('ion-fab') ?? binding.trigger;
+        if (trigger.hasAttribute(marker) || enteringTriggers.has(trigger)) continue;
+        // Registration / WillEnter runs before the first page paint. Keep the
+        // original FAB hidden until native eligibility and acknowledgement settle.
+        trigger.classList.add(prehiddenClass);
+        enteringTriggers.set(trigger, binding);
+      }
+    },
+    settle(transitioning: (element: HTMLElement) => boolean) {
+      for (const [trigger, binding] of enteringTriggers) {
+        if (trigger.isConnected && !trigger.closest('.ion-page-hidden') && transitioning(binding.footer)) continue;
+        trigger.classList.remove(prehiddenClass);
+        enteringTriggers.delete(trigger);
+      }
+    },
     keepSearchTabsVisible() {
       if (!keyboardVisible) return;
       for (const [binding, state] of states) {
@@ -198,7 +226,6 @@ export const createSearchSupport = (doc: Document, id: (element: Element) => str
         }
       }
       const inactive: [Candidate, NativeUISearch][] = [];
-      const pageHidden = (element: HTMLElement) => !!element.closest('.ion-page-hidden, .ion-page-invisible');
       const retainInactive = (candidate: Candidate, state?: SearchState, keepAvailable = false) => {
         // Keep NativeUISearchController across page transitions instead of demoting to UITabBar.
         // While the searchable page is only blocked mid-transition (not yet hidden), keep
@@ -219,7 +246,12 @@ export const createSearchSupport = (doc: Document, id: (element: Element) => str
         const pageUnavailable = blocked(binding.footer) || !!binding.footer.closest(excluded);
         const existing = states.get(binding);
         if (pageUnavailable) {
-          retainInactive(candidate, existing, !!existing?.last?.available && !pageHidden(binding.footer));
+          const keepAvailable = !!existing?.last?.available && !binding.footer.closest(excluded);
+          retainInactive(candidate, existing, keepAvailable);
+          // The retained native search still owns its Web sources until the page
+          // hides. Releasing only those sources briefly draws both search buttons.
+          if (keepAvailable)
+            candidate.sources = [binding.tabBar, binding.trigger.closest<HTMLElement>('ion-fab') ?? binding.trigger, binding.footer];
           // A first registration on a cached/hidden page has no measurable trigger.
           // Keep ordinary tabs until the page becomes available; only reuse a previous valid search.
           continue;
@@ -476,8 +508,9 @@ export const createSearchSupport = (doc: Document, id: (element: Element) => str
       }
       schedule();
     },
-    retire(binding: NativeSearchBinding) {
+    retire(binding: NativeSearchBinding, unavailable = false) {
       const state = states.get(binding);
+      if (unavailable && state?.last) state.last = { ...state.last, available: false, active: false, focused: false };
       // Keep ownership until keyboardWillHide can release this class.
       if (state?.keyboardHidden && keyboardVisible) binding.tabBar.classList.add('tab-bar-hidden');
       if (state?.focused) {
@@ -488,6 +521,8 @@ export const createSearchSupport = (doc: Document, id: (element: Element) => str
       releaseKeyboardResize();
     },
     destroy() {
+      for (const trigger of enteringTriggers.keys()) trigger.classList.remove(prehiddenClass);
+      enteringTriggers.clear();
       states.forEach((state) => {
         this.retire(state.binding);
         state.restore();
