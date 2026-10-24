@@ -1,5 +1,6 @@
 import type { NativeUIOptions, NativeUIPlugin } from '../definitions';
 import { bounded, boundedListener } from '../shared/bridge';
+import type { NativeUIConnection } from '../shared/connection';
 import { isExcluded, isPermanentlyExcluded, isNativeUIDisabled } from '../shared/dom';
 import { activeElement, trapFocus } from './focus';
 import { relayPopover, popoverPresentation, verticalBarsPopoverAnchor } from './popover';
@@ -31,6 +32,8 @@ interface Connection {
   stopAnimation?: () => void;
   hideAnimation?: () => void;
   stopLifecycle?: () => void;
+  stopStateCheck?: () => void;
+  reconciling?: Promise<void>;
 }
 
 /** Ionic owns lifecycle and dismissal; only one overlay is relayed at a time. */
@@ -40,6 +43,7 @@ export const createOverlayController = async (
   options: NativeUIOptions,
   retainProjection: (deferActivation?: (id: string) => boolean) => () => void,
   nativeVerticalBars: () => boolean,
+  connection?: NativeUIConnection,
 ) => {
   let current: Connection | undefined;
   let opening = Promise.resolve();
@@ -58,6 +62,7 @@ export const createOverlayController = async (
       }
     };
     try {
+      await stage('stateCheck', connection.stopStateCheck);
       await stage('events', connection.stopEvents);
       await stage('lifecycle', connection.stopLifecycle);
       await stage('childEvents', connection.stopChildEvents);
@@ -90,6 +95,42 @@ export const createOverlayController = async (
     if (current) await release(current);
   };
   const excluded = (overlay: HTMLElement) => isPermanentlyExcluded(overlay) || isExcluded(overlay) || isNativeUIDisabled(overlay);
+  // Events are the fast path; the retained native state also lets us reconcile
+  // a missed event without replaying the action that opened the popover.
+  const reconcile = (connection: Connection, state: 'dismissed' | 'missing') => {
+    if (connection.reconciling) return connection.reconciling;
+    if (stopped || suspensions.size || current !== connection || connection.closing || connection.nativeClosing || connection.dismissed)
+      return Promise.resolve();
+    connection.reconciling = (async () => {
+      if (state === 'dismissed' && connection.overlay.backdropDismiss) {
+        if (await bounded(connection.overlay.dismiss(undefined, 'backdrop'))) return;
+      }
+      if (current !== connection || connection.closing || connection.nativeClosing || stopped || suspensions.size) return;
+      // Keep the same WebView and adopted live nodes. Only reconnect presentation;
+      // Ionic lifecycle, click handlers and application requests must not repeat.
+      await bounded(
+        plugin.presentOverlay({
+          id: connection.id,
+          presentation: { ...popoverPresentation(connection.overlay), animated: false },
+        }),
+      );
+    })()
+      .catch(async (error) => {
+        await release(connection);
+        doc.defaultView!.dispatchEvent(new Event('nativeUIRefresh'));
+        console.error('Native overlay reconnection failed; restored the source content.', error);
+      })
+      .finally(() => {
+        connection.reconciling = undefined;
+      });
+    return connection.reconciling;
+  };
+  const observeConnection = (currentConnection: Connection) =>
+    connection?.observe(async (state) => {
+      if (current !== currentConnection) return;
+      const native = state.overlay?.id === currentConnection.id ? state.overlay.state : 'missing';
+      if (native !== 'presented') await reconcile(currentConnection, native);
+    });
   const connect = async (connection: Connection, ready: Promise<void>, presentation: Presentation) => {
     const { overlay } = connection;
     const gone = () =>
@@ -196,6 +237,8 @@ export const createOverlayController = async (
           presentation: { ...nativePresentation, animated: presentation.animated },
         }),
       );
+
+      if (current === connection && !connection.closing) connection.stopStateCheck = observeConnection(connection);
       (focused?.isConnected && focused.ownerDocument === staged.win.document ? focused : content.root).focus({ preventScroll: true });
     } catch (error) {
       await release(connection);
@@ -308,10 +351,9 @@ export const createOverlayController = async (
     if (doc.hidden) invalidate();
   };
   const listener = await boundedListener(
-    plugin.addListener('overlay', (event) => {
+    (connection?.listen ?? plugin.addListener.bind(plugin))('overlay', (event) => {
       if (event.id !== current?.id) return;
-      if (event.action === 'dismiss' && current.overlay.backdropDismiss)
-        void current.overlay.dismiss(undefined, 'backdrop').catch(console.error);
+      if (event.action === 'dismiss') void reconcile(current, 'dismissed');
     }),
   );
   win.addEventListener('resize', invalidate);

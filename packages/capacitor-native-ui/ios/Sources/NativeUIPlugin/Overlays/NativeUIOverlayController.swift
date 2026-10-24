@@ -58,10 +58,20 @@ final class NativeUIOverlayController: NSObject, WKUIDelegate {
         return host.webView
     }
 
+    // Read ownership without layout or geometry work. Keep the terminal state
+    // until Web closes this connection, so a lost event can be reconciled.
+    var connectionState: [String: String]? {
+        guard let id, let host else { return nil }
+        let state = host.disappeared ? "dismissed" :
+            (host.anchoredVisible && host.viewIfLoaded?.window != nil ? "presented" : "missing")
+        return ["id": id, "state": state]
+    }
+
     func present(_ id: String, options: [String: Any]?, anchored: (String, NativeUIOverlayHost, @escaping (Bool) -> Void) -> Bool,
                  completion: @escaping (Bool) -> Void) {
-        guard self.id == id, let host, let owner,
-              owner.presentedViewController == nil else { completion(false); return }
+        guard self.id == id, let host, let owner else { completion(false); return }
+        if host.anchoredVisible && host.viewIfLoaded?.window != nil { completion(true); return }
+        guard owner.presentedViewController == nil else { completion(false); return }
         host.apply(options)
         var settled = false
         var timeout: DispatchWorkItem?

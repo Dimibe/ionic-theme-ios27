@@ -183,7 +183,6 @@ private struct NativeUIVerticalBarsButton: ToolbarContent {
                         set: { shown in
                             if !shown && model.popoverAnchor == item.id {
                                 model.popoverAnchor = nil
-                                model.popoverHost?.event("dismiss")
                             }
                         }
                     )) {
@@ -201,8 +200,11 @@ private struct NativeUIVerticalBarsButton: ToolbarContent {
                                     completion?(true)
                                 }
                                 .onDisappear {
-                                    if model.popoverHost === host { model.popoverHost = nil }
-                                    host.completeDismissal()
+                                    if model.popoverHost === host {
+                                        model.popoverAnchor = nil
+                                        model.popoverHost = nil
+                                    }
+                                    host.presentationDidDisappear()
                                 }
                         }
                     }
@@ -633,6 +635,7 @@ final class NativeUIVerticalBarsController: NativeUIVerticalBarsControlling {
         model.popoverHost = host
         model.popoverPresented = completion
         host.anchoredVisible = false
+        host.disappeared = false
         host.cancelAnchored = { [weak self] in
             // Native presentation callbacks and their deadline run on the main queue.
             MainActor.assumeIsolated { self?.detach() }

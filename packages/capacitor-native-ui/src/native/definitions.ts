@@ -258,10 +258,20 @@ export interface WebViewMetrics {
   verticalBarEdge?: VerticalBarEdge;
 }
 
+/** @internal Native ownership snapshot; reading it never performs layout. */
+export interface NativeUIConnectionState {
+  session: string;
+  revision: number;
+  sequence: number;
+  listeners: string[];
+  surfaces: { horizontal: boolean; vertical: boolean };
+  overlay?: { id: string; state: 'presented' | 'dismissed' | 'missing' };
+}
+
 export interface NativeUIPlugin {
   configure(options?: {
     suppressScrollEdgeEffect?: boolean;
-  }): Promise<{ supported: boolean; extensions?: string[]; modalAnimation?: boolean }>;
+  }): Promise<{ supported: boolean; extensions?: string[]; modalAnimation?: boolean; connectionState?: boolean }>;
   completeExtensionAction(options: { requestId: string; accepted: boolean }): Promise<void>;
   getWebViewMetrics(): Promise<WebViewMetrics>;
   getVerticalBarsGeometry(options: {
@@ -270,6 +280,7 @@ export interface NativeUIPlugin {
   }): Promise<{ revision?: number; items: Record<string, NativeUIVerticalBarFrame> }>;
   prepareOverlay(options: { id: string }): Promise<void>;
   presentOverlay(options: { id: string; presentation?: NativeUIPopoverPresentation }): Promise<void>;
+  getConnectionState(): Promise<NativeUIConnectionState>;
   dismissOverlay(options: { id: string; animated: boolean }): Promise<void>;
   closeOverlay(options: { id: string }): Promise<void>;
   stopOverlays(): Promise<void>;

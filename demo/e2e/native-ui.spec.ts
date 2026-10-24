@@ -8,13 +8,17 @@ import type {
   NativeUIItem,
   NativeUISnapshot,
   NativeUIPlugin,
+  NativeUIConnectionState,
 } from '../../packages/capacitor-native-ui/src/native/definitions';
 import type { NativeUIMockCore, TestAppElement } from './native-ui-mock';
 
 const importer = new NodePackageImporter(resolve(__dirname, '../../'));
 
 interface NativeUIMock extends NativeUIMockCore {
+  overlayTest?: { state: string; id?: string; presentations: number; checks: number; resolve?: () => void };
   update: NativeUIPlugin['update'];
+  connectionUpdateAttempts?: number;
+  connectionCheckRevision?: number;
   toolbarProgress: { id: number; progress: number }[];
   delay: number;
   hang: boolean;
@@ -34,8 +38,14 @@ const mockNative = async (
   fail = false,
   nativeEdge: 'leading' | 'trailing' | null | 'unreported' = 'trailing',
   modalAnimation = false,
+  connectionState = false,
 ) => {
-  const script = ([fail, nativeEdge, modalAnimation]: readonly [boolean, 'leading' | 'trailing' | null | 'unreported', boolean]) => {
+  const script = ([fail, nativeEdge, modalAnimation, connectionState]: readonly [
+    boolean,
+    'leading' | 'trailing' | null | 'unreported',
+    boolean,
+    boolean,
+  ]) => {
     const mock = {
       updates: [] as NativeUISnapshot[],
       toolbarProgress: [] as { id: number; progress: number }[],
@@ -73,10 +83,19 @@ const mockNative = async (
       async stopOverlays() {},
       async configure(options: { suppressScrollEdgeEffect?: boolean }) {
         this.configuredWith = options;
-        return { supported: true, verticalBars: nativeEdge !== null, modalAnimation };
+        return { supported: true, verticalBars: nativeEdge !== null, modalAnimation, connectionState };
       },
       async getVerticalBarsGeometry() {
         return { revision: this.updates.at(-1)?.revision, items: (this as NativeUIMock).geometry ?? {} };
+      },
+      async getConnectionState(): Promise<NativeUIConnectionState> {
+        return {
+          session: 'test-session',
+          surfaces: { horizontal: true, vertical: true },
+          revision: this.updates.at(-1)?.revision ?? 0,
+          sequence: this.sequence,
+          listeners: Object.keys(this.listeners).filter((name) => this.listeners[name].length > 0),
+        };
       },
       async getWebViewMetrics() {
         return { radius: 0, verticalBarEdge: nativeEdge === 'unreported' ? null : nativeEdge };
@@ -145,7 +164,7 @@ const mockNative = async (
       },
     });
   };
-  await page.addInitScript(script, [fail, nativeEdge, modalAnimation] as const);
+  await page.addInitScript(script, [fail, nativeEdge, modalAnimation, connectionState] as const);
 };
 
 const activate = (page: Page, label: string, duplicate = false) =>
@@ -3883,6 +3902,237 @@ for (const standalone of [false, true])
       expect(await geometry()).toEqual(before);
     }
   });
+
+test('native popover disappearance releases retained controls and accepts later actions', async ({ page }) => {
+  await page.setViewportSize({ width: 700, height: 900 });
+  await mockNative(page);
+  await page.goto('/main/index/popover');
+  await page.locator('ion-app').evaluate((app) => app.classList.add('ios-theme-vertical-bars'));
+  const trigger = page.locator('#native-popover-trigger');
+  await expect(trigger).toHaveAttribute('data-native-ui-vertical-bars-member', '');
+  await page.evaluate(() => {
+    const mock = Capacitor.registerPlugin<NativeUIMock>('NativeUI');
+    Object.assign(mock, {
+      async prepareOverlay({ id }: { id: string }) {
+        document.documentElement.dataset['testNativeOverlay'] = id;
+      },
+      async presentOverlay() {},
+      async dismissOverlay() {},
+    });
+  });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const opened = page.waitForEvent('popup');
+    await activate(page, attempt === 0 ? 'Open popover' : 'Reopen popover');
+    const relay = await opened;
+    await expect(relay.getByText('Toolbar popover', { exact: true })).toBeVisible();
+    // A native disappearance must release the projection lease even though
+    // no Web close button was clicked and the source overlay is invisible.
+    await trigger.evaluate((el) => el.setAttribute('aria-label', 'Reopen popover'));
+    await page.evaluate(() => {
+      const mock = Capacitor.registerPlugin<NativeUIMock>('NativeUI');
+      mock.notifyListeners('overlay', { id: document.documentElement.dataset['testNativeOverlay'], action: 'dismiss' });
+    });
+    await expect.poll(() => relay.isClosed()).toBe(true);
+    await expect(page.locator('ion-popover[trigger="native-popover-trigger"]')).toHaveJSProperty('presented', false);
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          Capacitor.registerPlugin<NativeUIMock>('NativeUI')
+            .updates.at(-1)
+            ?.controls.some((control) => control.items.some((item) => item.accessibilityLabel === 'Reopen popover')),
+        ),
+      )
+      .toBe(true);
+  }
+});
+
+for (const loss of ['dismissed', 'missing', 'non-dismissible', 'transient-failure', 'stale-response'] as const)
+  test(`native popover reconciles ${loss} without replaying its opening action`, async ({ page }) => {
+    await page.setViewportSize({ width: 700, height: 900 });
+    await mockNative(page, false, 'trailing', false, true);
+    await page.goto('/main/index/popover');
+    await page.locator('ion-app').evaluate((app) => app.classList.add('ios-theme-vertical-bars'));
+    const trigger = page.locator('#native-popover-trigger');
+    await expect(trigger).toHaveAttribute('data-native-ui-vertical-bars-member', '');
+    await page.evaluate((loss) => {
+      const data: NonNullable<NativeUIMock['overlayTest']> = { state: 'presented', presentations: 0, checks: 0 };
+      const overlay = document.querySelector<HTMLIonPopoverElement>('ion-popover[trigger="native-popover-trigger"]')!;
+      if (loss === 'non-dismissible') overlay.backdropDismiss = false;
+      const mock = Capacitor.registerPlugin<NativeUIMock & NativeUIPlugin>('NativeUI');
+      const readConnection = mock.getConnectionState.bind(mock);
+      Object.assign(mock, {
+        overlayTest: data,
+        async prepareOverlay({ id }: { id: string }) {
+          data.id = id;
+        },
+        async presentOverlay() {
+          data.presentations++;
+          data.state = 'presented';
+        },
+        async getConnectionState() {
+          const base = await readConnection();
+          data.checks++;
+          if (data.state === 'stale-response')
+            return new Promise((resolve) => {
+              data.resolve = () => resolve({ ...base, overlay: { id: data.id, state: 'missing' } });
+            });
+          if (data.state === 'transient-failure') {
+            data.state = 'presented';
+            throw new Error('One lost response');
+          }
+          return { ...base, overlay: { id: data.id, state: data.state } };
+        },
+        async dismissOverlay() {},
+      });
+    }, loss);
+    const opened = page.waitForEvent('popup');
+    await activate(page, 'Open popover');
+    const relay = await opened;
+    await expect(relay.getByText('Toolbar popover', { exact: true })).toBeVisible();
+    const presentations = () => page.evaluate(() => Capacitor.registerPlugin<NativeUIMock>('NativeUI').overlayTest!.presentations);
+    await expect.poll(presentations).toBe(1);
+    await relay.evaluate(() => {
+      (window as Window & { retainedValue?: string }).retainedValue = 'unsaved';
+    });
+    // No dismissal event: recover from the native connection's retained state.
+    await page.evaluate((loss) => {
+      Capacitor.registerPlugin<NativeUIMock>('NativeUI').overlayTest!.state = loss === 'non-dismissible' ? 'dismissed' : loss;
+    }, loss);
+    const overlay = page.locator('ion-popover[trigger="native-popover-trigger"]');
+    if (loss === 'stale-response' || loss === 'transient-failure') {
+      await expect
+        .poll(() =>
+          page.evaluate(() => {
+            const data = Capacitor.registerPlugin<NativeUIMock>('NativeUI').overlayTest!;
+            return data.resolve !== undefined || data.checks >= 2;
+          }),
+        )
+        .toBe(true);
+      expect(relay.isClosed()).toBe(false);
+      await overlay.evaluate((el: HTMLIonPopoverElement) => el.dismiss());
+      await expect.poll(() => relay.isClosed()).toBe(true);
+      await page.evaluate(() => Capacitor.registerPlugin<NativeUIMock>('NativeUI').overlayTest!.resolve?.());
+      await expect.poll(presentations).toBe(1);
+    } else if (loss === 'dismissed') {
+      await expect.poll(() => relay.isClosed()).toBe(true);
+      await expect(overlay).toHaveJSProperty('presented', false);
+      await expect.poll(presentations).toBe(1);
+    } else {
+      await expect.poll(presentations).toBe(2);
+      await expect(overlay).toHaveJSProperty('presented', true);
+      expect(await relay.evaluate(() => (window as Window & { retainedValue?: string }).retainedValue)).toBe('unsaved');
+      await overlay.evaluate((el: HTMLIonPopoverElement) => el.dismiss());
+      await expect.poll(() => relay.isClosed()).toBe(true);
+    }
+    // The shared connection check continues, but removed overlay ownership must
+    // never be recreated by a late health response.
+    const before = await presentations();
+    await page.waitForTimeout(1200);
+    expect(await presentations()).toBe(before);
+  });
+
+for (const vertical of [false, true])
+  for (const failure of ['listeners', 'native-state', 'surface', 'updates', 'revision', 'permanent-updates', 'disconnected'] as const)
+    test(`shared Native UI connection recovers ${failure} without replaying actions (vertical=${vertical})`, async ({ page }) => {
+      await page.setViewportSize({ width: vertical ? 700 : 402, height: 900 });
+      await mockNative(page, false, 'trailing', false, true);
+      await page.goto('/main/index/native-ui');
+      const save = page.locator('app-native-ui ion-button[type="submit"]');
+      await save.evaluate((button) => {
+        button.querySelector('ion-icon')!.setAttribute('slot', 'icon-only');
+        button.querySelector('[data-label]')?.remove();
+      });
+      if (vertical) await page.locator('ion-app').evaluate((app) => app.classList.add('ios-theme-vertical-bars'));
+      await expect.poll(() => save.evaluate((el) => !!el.closest('[data-native-ui-projected]'))).toBe(true);
+      await expect
+        .poll(() =>
+          page.evaluate(() =>
+            Capacitor.registerPlugin<NativeUIMock>('NativeUI')
+              .updates.at(-1)
+              ?.controls.some((control) => control.items.some((item) => item.accessibilityLabel === 'Save')),
+          ),
+        )
+        .toBe(true);
+      await activate(page, 'Save', true);
+      await expect(page.locator('[data-save-count]')).toHaveText('1');
+      const revision = await page.evaluate((failure) => {
+        const mock = Capacitor.registerPlugin<NativeUIMock & NativeUIPlugin>('NativeUI');
+        const previous = mock.updates.at(-1)!.revision;
+        const handshake = mock.getConnectionState.bind(mock);
+        mock.getConnectionState = async () => {
+          const state = await handshake();
+          mock.connectionCheckRevision ??= state.revision;
+          return state;
+        };
+        if (failure === 'listeners') mock.listeners = {};
+        else if (failure === 'native-state' || failure === 'surface') {
+          const read = mock.getConnectionState.bind(mock);
+          let lost = true;
+          mock.getConnectionState = async () => {
+            const state = await read();
+            if (!lost) return state;
+            lost = false;
+            if (failure === 'surface') return { ...state, surfaces: { horizontal: false, vertical: false } };
+            mock.sequence = 0;
+            return { ...state, session: 'restarted-native', revision: 0, sequence: 0 };
+          };
+        } else {
+          const update = mock.update.bind(mock);
+          let failures = 0;
+          mock.update = async (snapshot) => {
+            mock.connectionUpdateAttempts = failures + 1;
+            if (failure === 'permanent-updates' || failure === 'disconnected') {
+              if (failure === 'disconnected')
+                mock.getConnectionState = async () => {
+                  mock.connectionCheckRevision = 0;
+                  throw new Error('Connection unavailable');
+                };
+              failures++;
+              throw new Error('Persistent update error');
+            }
+            if (++failures <= (failure === 'revision' ? 1 : 2)) {
+              if (failure === 'revision') return { revision: snapshot.revision + 10 };
+              throw new Error('Connection temporarily unavailable');
+            }
+            return update(snapshot);
+          };
+          document.querySelector('app-native-ui ion-button[type="submit"]')!.setAttribute('aria-label', 'Save recovered');
+        }
+        return previous;
+      }, failure);
+      await expect
+        .poll(() => page.evaluate(() => Capacitor.registerPlugin<NativeUIMock>('NativeUI').connectionCheckRevision))
+        .toBeGreaterThanOrEqual(0);
+      const checkedRevision = await page.evaluate(() => Capacitor.registerPlugin<NativeUIMock>('NativeUI').connectionCheckRevision!);
+      if (failure === 'permanent-updates' || failure === 'disconnected') {
+        await expect
+          .poll(() => page.evaluate(() => (document.querySelector('ion-app') as TestAppElement).nativeUI!.getStatus().state))
+          .toBe('web');
+        const attempts = await page.evaluate(() => Capacitor.registerPlugin<NativeUIMock>('NativeUI').connectionUpdateAttempts);
+        await page.waitForTimeout(1200);
+        expect(await page.evaluate(() => Capacitor.registerPlugin<NativeUIMock>('NativeUI').connectionUpdateAttempts)).toBe(attempts);
+        await expect(page.locator('[data-save-count]')).toHaveText('1');
+        await page.getByRole('button', { name: 'Save recovered', exact: true }).click();
+        await expect(page.locator('[data-save-count]')).toHaveText('2');
+        return;
+      }
+      await expect
+        .poll(() => page.evaluate(() => Capacitor.registerPlugin<NativeUIMock>('NativeUI').updates.at(-1)!.revision))
+        .toBeGreaterThan(Math.max(revision, checkedRevision));
+      await expect
+        .poll(() =>
+          page.evaluate(() =>
+            ['activate', 'search', 'webViewMetricsChange'].every(
+              (name) => Capacitor.registerPlugin<NativeUIMock>('NativeUI').listeners[name]?.length === 1,
+            ),
+          ),
+        )
+        .toBe(true);
+      await expect(page.locator('[data-save-count]')).toHaveText('1');
+      await activate(page, failure === 'updates' || failure === 'revision' ? 'Save recovered' : 'Save', true);
+      await expect(page.locator('[data-save-count]')).toHaveText('2');
+      expect(await page.evaluate(() => (document.querySelector('ion-app') as TestAppElement).nativeUI!.getStatus().state)).toBe('native');
+    });
 
 test('ordinary popovers stay in the source WebView', async ({ page }) => {
   await mockNative(page);
