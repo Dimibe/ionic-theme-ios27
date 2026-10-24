@@ -7,6 +7,8 @@ const presentations = new WeakMap<Element, { animation: ModalAnimation; frame: F
 export const modalPresentation = (modal: Element) => presentations.get(modal);
 export const modalPreparing = (modal: Element) => presentations.has(modal) && presentations.get(modal) === null;
 
+const dismissing = new WeakSet<Element>();
+export const modalDismissing = (modal: Element) => dismissing.has(modal);
 const states = new WeakMap<Document, { top?: HTMLIonModalElement }>();
 
 export const topModal = (doc: Document): HTMLIonModalElement | undefined => states.get(doc)?.top;
@@ -19,6 +21,47 @@ export const modalUsesVerticalBars = (element: Element): boolean => {
 export const inVerticalBarsSurface = (element: Element): boolean => {
   const modal = topModal(element.ownerDocument);
   return modal ? element.closest('ion-modal') === modal && modalUsesVerticalBars(element) : !element.closest('ion-modal');
+};
+
+/** Release Ionic's dormant sheet gesture effect before the leave animation owns opacity.
+ * WillDismiss is emitted only after canDismiss succeeds. A gesture dismissal already
+ * owns its animation and must not be interrupted. Match only Ionic's standard
+ * opacity-only keyframes; leave running and nonmatching effects alone.
+ */
+export const releaseSheetBackdropGesture = (modal: HTMLElement, role?: string): void => {
+  if (role === 'gesture' || !modal.matches('.modal-sheet.ios-theme-vertical-bars-modal')) return;
+  const backdrop = modal.shadowRoot?.querySelector('ion-backdrop');
+  const breakpoint = (modal as HTMLIonModalElement).backdropBreakpoint ?? 0;
+  const expected =
+    breakpoint === 0
+      ? [
+          { offset: 0, opacity: 'var(--backdrop-opacity)' },
+          { offset: 1, opacity: '0.01' },
+        ]
+      : [
+          { offset: 0, opacity: 'var(--backdrop-opacity)' },
+          { offset: 1 - breakpoint, opacity: '0' },
+          { offset: 1, opacity: '0' },
+        ];
+  for (const animation of backdrop?.getAnimations() ?? []) {
+    const effect = animation.effect;
+    if (animation.playState !== 'paused' || !(effect instanceof KeyframeEffect)) continue;
+    const frames = effect.getKeyframes();
+    if (
+      effect.target !== backdrop ||
+      frames.length !== expected.length ||
+      !frames.every(
+        (frame, index) =>
+          frame.offset === expected[index].offset &&
+          frame['opacity'] === expected[index].opacity &&
+          frame.easing === 'linear' &&
+          (frame.composite === 'auto' || frame.composite === 'replace') &&
+          Object.keys(frame).every((key) => ['offset', 'computedOffset', 'easing', 'composite', 'opacity'].includes(key)),
+      )
+    )
+      continue;
+    animation.cancel();
+  }
 };
 
 export const observeVerticalBarsModals = (doc: Document, animate: () => boolean = () => false): (() => void) => {
@@ -117,6 +160,10 @@ export const observeVerticalBarsModals = (doc: Document, animate: () => boolean 
         else if (name === 'ionModalDidPresent' || name === 'ionModalWillDismiss' || name === 'ionModalDidDismiss') {
           if (presentations.delete(modal)) bounds = '';
         }
+        if (name === 'ionModalWillDismiss') {
+          dismissing.add(modal);
+          if (animate()) releaseSheetBackdropGesture(modal, (event as CustomEvent<{ role?: string }>).detail?.role);
+        } else if (name === 'ionModalWillPresent' || name === 'ionModalDidDismiss') dismissing.delete(modal);
         if (name === 'ionModalDidDismiss') {
           presenting.delete(modal);
           dismissed.add(modal);
