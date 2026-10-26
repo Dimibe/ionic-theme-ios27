@@ -50,7 +50,7 @@ If you also use the iOS 27 theme, install or update both packages together:
 npm install @rdlabo/capacitor-native-ui @rdlabo/ionic-theme-ios27 @erkamyaman/capacitor-foldable
 ```
 
-The theme and Native UI share the same release version; Foldable is versioned independently. Declare Native UI as a direct dependency so Capacitor can discover the plugin. The setup commands install Foldable as a separate application dependency. Installing these packages does not activate native controls; application startup chooses projection and connects device layout.
+The Engine, Native UI and theme share the same release version; Foldable is versioned independently. Native UI includes the Engine npm dependency and links its native libraries through SwiftPM and Maven. CocoaPods consumers also need the [local Engine pod setup](https://github.com/rdlabo-dev/ionic-theme-ios27/tree/main/packages/capacitor-native-ui-engine#cocoapods-compatibility-through-npm). Declare Native UI as a direct dependency so Capacitor can discover the plugin. The setup commands install Foldable as a separate application dependency. Installing these packages does not activate native controls; application startup chooses projection and connects device layout.
 
 Continue with [Ionic setup](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/setup), [HTML setup](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/framework-independent), or [extensions](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/native-ui-extensions). After configuring startup, build your application's Web assets, run `npx cap sync` and rebuild the native app. No repository checkout or archive download is needed.
 
@@ -58,7 +58,7 @@ Upgrading from the native APIs bundled in theme 1.2.0 or 1.2.1? Follow the [migr
 
 ## Requirements
 
-Native startup requires Capacitor 8 and an iOS or Android project. Android extensions require API 24+ and Kotlin/Compose. Ordinary native rendering requires iOS 26+ and Xcode 26+. The Ionic adapter supports Ionic `>=8.8.1 <10`; the `/core` HTML adapter requires no Ionic or theme package. [Vertical Bars](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/vertical-bars) and [extension placement](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/native-ui-extensions#content-and-placement-are-independent) have additional device requirements.
+Native startup requires Capacitor 8 and an iOS or Android project. Android extensions require API 24+ and Kotlin/Compose. Ordinary native rendering requires iOS 26+ and Xcode 26+. The Ionic adapter declares Ionic `>=8.8.1 <10`, with automated E2E validation on Ionic 9; the `/core` HTML adapter requires no Ionic or theme package. [Vertical Bars](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/vertical-bars) and [extension placement](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/native-ui-extensions#content-and-placement-are-independent) have additional device requirements.
 
 For standard controls, follow the setup guide for your markup; the Ionic and HTML adapters use different imports. For custom native content, start directly with the [extensions guide](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/native-ui-extensions).
 

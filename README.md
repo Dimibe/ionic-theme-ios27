@@ -3,7 +3,7 @@
 Install from npm; see [Native UI installation](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/readme#install-from-npm) or [theme setup](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/setup). For 1.x, use the [v1.2.1 guide](https://github.com/rdlabo-dev/ionic-theme-ios27/tree/ios27-v1.2.1).
 Bring the iOS look to your Ionic app, or add native controls to your Capacitor app while keeping Web content, routing, and application state.
 
-**[Try the Ionic 9 demo](https://ionic-theme-ios27.rdlabo.dev/) · [Try the Ionic 8 demo](https://ionic8-theme-ios27.rdlabo.dev/)**
+**[Try the Ionic 9 demo](https://ionic-theme-ios27.rdlabo.dev/)**
 
 <p>
   <img src="screenshots/ios27-settings.png" width="32%" alt="iOS 27 theme: Settings with Liquid Glass controls" />
@@ -29,6 +29,20 @@ The same Library screen with Native UI off and on, captured while dragging the s
 
 [![Web and native tab bars during the same drag, with enlarged glass details](screenshots/native-ui-drag/comparison.png)](screenshots/native-ui-drag/comparison.png)
 
+## Upcoming next release: 2.0.4-0
+
+The planned `ios27-v2.0.4-0` prerelease brings prepared native images beneath blocking Web overlays and restores live native controls after dismissal. Native UI uses the shared Native UI Engine for image handoff and scroll tracking. Images are noninteractive; when no usable image is available, controls retain their existing Web fallback.
+
+After publication, install the matching preview packages and rebuild your native application:
+
+```sh
+npm install @rdlabo/capacitor-native-ui@2.0.4-0 @rdlabo/ionic-theme-ios27@2.0.4-0 @erkamyaman/capacitor-foldable
+npm run build
+npx cap sync
+```
+
+The theme is optional. Follow the [Native UI setup guide](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/setup) for application initialization. Native UI enables Ionic overlay support internally; applications do not need an additional Engine initializer.
+
 ## Choose what your app needs
 
 | Your goal                                                        | Start here                                                                                                                          |
@@ -42,7 +56,7 @@ The same Library screen with Native UI off and on, captured while dragging the s
 
 Already using the iOS theme? [Add Native UI to your theme](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/add-native-ui) as your next step.
 
-Both packages support Ionic 8.8.1 or later within Ionic 8 or 9. Native UI requires Capacitor 8; see its setup guide for supported iOS environments.
+The declared Ionic compatibility range remains `>=8.8.1 <10`; automated E2E validation targets Ionic 9. Native UI requires Capacitor 8; see its setup guide for supported iOS environments.
 
 ## Explore further
 
@@ -61,6 +75,8 @@ The theme and `@rdlabo/capacitor-native-ui` remain MIT. Only [`@rdlabo/capacitor
 
 ## Maintenance
 
-Release from a clean, up-to-date `main` with `npm run release`. Request a PR beta with `/beta`. See the [workflows](.github/workflows) for CI and release implementation.
+The Engine, Native UI and theme use a shared release version. Before running `npm run release`, prepare the workspace versions, inter-package dependencies and lockfiles on `main`, and publish the matching Engine Maven artifact after that commit passes Engine CI. This applies to prereleases too: `2.0.4-0` needs its own Maven artifact; `2.0.3` cannot satisfy that dependency.
+
+Then release from a clean, up-to-date `main` with `npm run release`, selecting the same target version. Keep the root version at the previous release until this command bumps it and creates the `ios27-v…` tag. The tag workflow verifies Maven availability and publishes npm packages in order: Engine, Native UI, theme. Prereleases use the npm `next` dist-tag. See the [Engine publication instructions](packages/capacitor-native-ui-engine/README.md#maven-publication) and [workflows](.github/workflows).
 
 A partially published versioned release requires a new shared version: npm versions cannot be overwritten, and this release workflow does not resume partial publication.

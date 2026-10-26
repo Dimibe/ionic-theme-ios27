@@ -3,7 +3,7 @@
 Install with `npm install @rdlabo/ionic-theme-ios27 @erkamyaman/capacitor-foldable`. For 1.x, use the [v1.2.1 guide](https://github.com/rdlabo-dev/ionic-theme-ios27/tree/ios27-v1.2.1).
 A theme for Ionic apps that brings iOS 27 Liquid Glass and motion to the Web. Capacitor iOS apps can also opt into Native UI for supported controls, officially supported starting with 2.0.0.
 
-**[Ionic 9 demo](https://ionic-theme-ios27.rdlabo.dev/) · [Ionic 8 demo](https://ionic8-theme-ios27.rdlabo.dev/) · [Setup guide](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/setup)**
+**[Ionic 9 demo](https://ionic-theme-ios27.rdlabo.dev/) · [Setup guide](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/setup)**
 
 <!-- rdlabo-docs-pick -->
 
@@ -29,7 +29,7 @@ A theme for Ionic apps that brings iOS 27 Liquid Glass and motion to the Web. Ca
 
 We use [Capacitor Foldable](https://github.com/erkamyaman/capacitor-foldable), an excellent community plugin by Erkam Yaman, as our standard device-layout integration. It exposes fold state, hinge geometry, bar placement and change events to your application, giving you control over how the layout responds. Foldable handles device reporting; the theme provides Web layout helpers and Native UI projects controls. Install it alongside the package you use, then connect its events in your app.
 
-Use the [four-step setup guide](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/setup) to install the theme, load styles, configure animations, and preview your first screen. It supports Ionic 8.8.1 or later within Ionic 8 or 9, including Angular, React, and Vue. A native Capacitor project is not required for browser use.
+Use the [four-step setup guide](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/setup) to install the theme, load styles, configure animations, and preview your first screen. Its declared Ionic compatibility range is `>=8.8.1 <10`, including Angular, React, and Vue; automated E2E validation targets Ionic 9. A native Capacitor project is not required for browser use.
 
 The theme styles toolbars, tabs, lists, buttons, search, and overlays, with light and dark appearances. It does not activate native controls. Once the Web theme is working, you can optionally [add Native UI](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/add-native-ui).
 
