@@ -1,3 +1,4 @@
+import CapacitorNativeUIEngine
 import SwiftUI
 import UIKit
 
@@ -146,23 +147,25 @@ struct NativeUIExtensionContent: Decodable, Equatable {
 /// Normal UIViewController containment keeps SwiftUI appearance and teardown intact.
 @MainActor final class NativeUIExtensionController {
     let controller: UIHostingController<AnyView>
-    var view: UIView { controller.view }
+    let view: NativeUIClippedView
 
     init(content: AnyView, owner: UIViewController) {
         controller = UIHostingController(rootView: content)
+        view = NativeUIClippedView(content: controller.view)
         controller.view.backgroundColor = .clear
         if #available(iOS 16.4, *) { controller.safeAreaRegions = [] }
         owner.addChild(controller)
         // Capacitor can use WKWebView as its controller's root view. A sibling
         // shell surface is outside that controller's containment hierarchy.
-        owner.view.addSubview(controller.view)
+        owner.view.addSubview(view)
         controller.didMove(toParent: owner)
     }
 
     func update(_ content: AnyView) { controller.rootView = content }
+    func place(_ frame: CGRect, clip: CGRect? = nil) { view.place(frame, clip: clip) }
     func detach(duration: TimeInterval) {
         controller.willMove(toParent: nil)
-        NativeUICrossfade.retire(controller.view, duration: duration)
+        NativeUICrossfade.retire(view, duration: duration)
         controller.removeFromParent()
     }
 }

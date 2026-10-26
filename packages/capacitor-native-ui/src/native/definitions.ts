@@ -1,3 +1,4 @@
+import type { WebProjectionTransport } from '@rdlabo/capacitor-native-ui-engine';
 import type { NativeUIExtension } from './extensions';
 import type { PluginListenerHandle } from '@capacitor/core';
 
@@ -68,6 +69,9 @@ export type VerticalControlAreaOptions = NativeUIOptions;
 export interface NativeUIRuntimeOptions extends NativeUIOptions {
   source?: 'ionic' | 'html' | 'auto' | 'extensions';
   nativeState?: { edge?: 'left' | 'right' };
+  /** @internal Negotiated native support; absent on older binaries. */
+  coveredSnapshots?: boolean;
+  nativeScroll?: boolean;
   unavailableExtensions?: ReadonlyMap<string, string>;
   rail?: { host: HTMLElement; edge: 'left' | 'right' };
 }
@@ -92,8 +96,8 @@ export interface NativeUIRuntimeHandle {
   markForCheck(): void;
   /** Returns the current Web/native projection state. */
   getStatus(): NativeUIStatus;
-  /** Restores projected controls to the Web until the returned lease is resumed. */
-  suspend(): Promise<NativeUISuspension>;
+  /** Restores Web controls until resumed. Use covered only while the background is non-interactive; prepared native images preserve its appearance. */
+  suspend(options?: { covered?: boolean }): Promise<NativeUISuspension>;
   /** Stops synchronization, restores Web controls and releases native resources. */
   destroy(): Promise<void>;
 }
@@ -184,11 +188,26 @@ export type NativeUIControlKind =
   | 'segment'
   | 'floating-action-button';
 
+/** @internal Layout sample for one native-owned overflow scroll container. */
+export interface NativeUIScrollPlacement {
+  id: string;
+  /** @internal Only reuse a mapping whose update was accepted by Web. */
+  reuse?: boolean;
+  offsetX: number;
+  offsetY: number;
+  viewport: Frame;
+  clip: Frame;
+  contentWidth: number;
+  contentHeight: number;
+  frame: Frame;
+}
+
 export interface NativeUIControl extends Frame {
   id: string;
   /** Stable toolbar group identity, independent of the source control ID. */
   transitionId?: string;
   kind: NativeUIControlKind | 'extension';
+  scroll?: NativeUIScrollPlacement;
   extension?: { name: string; props: string; actions: Record<string, string>; tabBarId?: string };
   /** Lets the native host own adaptive placement instead of mirroring the DOM frame. */
   placement?: 'vertical-bars';
@@ -226,6 +245,8 @@ export interface NativeUISearchEvent extends NativeUIActivation {
 }
 
 export interface NativeUISnapshot {
+  /** Prepared Web image currently covering the inactive root surface. */
+  coveredSnapshotToken?: string;
   revision: number;
   transitionDuration?: number;
   /** Prepared native toolbar endpoints, controlled by the page animation clock. */
@@ -268,10 +289,22 @@ export interface NativeUIConnectionState {
   overlay?: { id: string; state: 'presented' | 'dismissed' | 'missing' };
 }
 
+/** @internal Prepared native pixels, served through Capacitor's local resource handler. */
+export interface CoveredSnapshot {
+  token: string;
+  parts: (Frame & { ids: string[]; url: string })[];
+}
+
 export interface NativeUIPlugin {
-  configure(options?: {
-    suppressScrollEdgeEffect?: boolean;
-  }): Promise<{ supported: boolean; extensions?: string[]; modalAnimation?: boolean; connectionState?: boolean }>;
+  configure(options?: { suppressScrollEdgeEffect?: boolean }): Promise<{
+    supported: boolean;
+    extensions?: string[];
+    modalAnimation?: boolean;
+    connectionState?: boolean;
+    coveredSnapshots?: boolean;
+    nativeScroll?: boolean;
+  }>;
+  coveredSnapshot?: WebProjectionTransport['send'];
   completeExtensionAction(options: { requestId: string; accepted: boolean }): Promise<void>;
   getWebViewMetrics(): Promise<WebViewMetrics>;
   getVerticalBarsGeometry(options: {
@@ -293,6 +326,7 @@ export interface NativeUIPlugin {
   }>;
   setToolbarTransitionProgress(options: { id: number; progress: number }): Promise<void>;
   clear(options: { revision: number }): Promise<void>;
+  addListener(name: 'snapshotInteraction', listener: (event: { active: boolean }) => void): Promise<PluginListenerHandle>;
   addListener(name: 'activate', listener: (event: NativeUIActivation) => void): Promise<PluginListenerHandle>;
   addListener(name: 'search', listener: (event: NativeUISearchEvent) => void): Promise<PluginListenerHandle>;
   addListener(name: 'webViewMetricsChange', listener: (event: WebViewMetrics) => void): Promise<PluginListenerHandle>;

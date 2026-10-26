@@ -1,8 +1,10 @@
+import { enableSupportIonicOverlays } from '@rdlabo/capacitor-native-ui-engine/ionic';
+import { getProjectionState } from './shared/covered-source';
 import { controlSelected } from './shared/control-options';
 import { createCrossfade, fadeMarker } from './shared/crossfade';
 import { alignVerticalBarClone, verticalBarFrame } from './shared/vertical-bars-geometry';
 import { createVerticalBarsWebSearch, searchProjectionClass } from './vertical-bars-web-search';
-import { inVerticalBarsSurface, topModal } from './shared/modal';
+import { inVerticalBarsSurface, topModal, movingModal } from './shared/modal';
 import type { NativeUIRuntimeHandle, NativeUIOptions, NativeUIStatus } from './definitions';
 import { VERTICAL_BARS_TRANSITION_CANCELED } from '../native-integration';
 import {
@@ -58,6 +60,8 @@ export const createVerticalBarsWebProjection = (
   options: NativeUIOptions,
   enabled: () => boolean = () => true,
 ): NativeUIRuntimeHandle => {
+  const projectionState = getProjectionState(doc);
+  const { isProjectionMutation, sourcesChangedEvent, targetsChangedEvent } = projectionState;
   const win = doc.defaultView!;
   const crossfade = createCrossfade(win);
   let incomingInstant: boolean | undefined;
@@ -76,10 +80,19 @@ export const createVerticalBarsWebProjection = (
   const listeners = new AbortController();
   const verticalBarsRoot = () => doc.querySelector<HTMLElement>('ion-app.ios-theme-vertical-bars');
   const surfaceOf = (element: Element) => element.closest<HTMLElement>('ion-modal') ?? verticalBarsRoot()!;
+  const isPrepared = (element: Element) =>
+    [...projectionState.preparedOwners].some((owner) => owner === element || owner.contains(element) || element.contains(owner));
   // Covered toolbar controls keep a Web visual on their own surface, below the modal.
-  const isCovered = (element: Element) => !!topModal(doc) && surfaceOf(element) !== topModal(doc);
+  const isCovered = (element: Element) =>
+    (!!movingModal(doc) && element.closest('ion-modal') === movingModal(doc)) ||
+    projectionState.owns(element as HTMLElement) ||
+    projectionState.isVisible(element as HTMLElement) ||
+    isPrepared(element) ||
+    (!!topModal(doc) && surfaceOf(element) !== topModal(doc));
   const projectedSources = () =>
     [
+      ...projectionState.owners,
+      ...projectionState.preparedOwners,
       ...backProjections.map(({ source }) => source),
       search.source,
       ...toolbarProjections.flatMap(({ actions }) => actions.map(({ source }) => source)),
@@ -114,7 +127,7 @@ export const createVerticalBarsWebProjection = (
     (inVerticalBarsSurface(element) || isCovered(element)) &&
     verticalBarsActionCandidate(element) &&
     !isExcluded(element, verticalBarsEnteringPage(element)) &&
-    !verticalBarsPages.isDeparted(element);
+    (!verticalBarsPages.isDeparted(element) || projectionState.isVisible(element));
   const isEligibleBack = (element: HTMLIonBackButtonElement) =>
     !!verticalBarsRoot()?.contains(element) &&
     (!options.root || options.root.contains(element)) &&
@@ -122,7 +135,7 @@ export const createVerticalBarsWebProjection = (
     verticalBarsOwned(element) &&
     verticalBarsBackCandidate(element) &&
     !isExcluded(element, verticalBarsEnteringPage(element)) &&
-    !verticalBarsPages.isDeparted(element) &&
+    (!verticalBarsPages.isDeparted(element) || projectionState.isVisible(element)) &&
     unprojected(projectedSources(), () => isRendered(element));
   const pageOrder = (element: Element) => Array.from(doc.querySelectorAll('.ion-page')).indexOf(element.closest('.ion-page')!);
   const findBack = (surface = topModal(doc) ?? verticalBarsRoot()) => {
@@ -185,11 +198,24 @@ export const createVerticalBarsWebProjection = (
   const copyAttributes = (target: HTMLElement, original: HTMLElement) => {
     for (const name of ['id', 'slot', marker, 'aria-hidden']) target.removeAttribute(name);
     for (const attribute of Array.from(target.attributes))
-      if (!['class', marker, fadeMarker].includes(attribute.name) && !original.hasAttribute(attribute.name))
+      if (
+        ![
+          'class',
+          marker,
+          fadeMarker,
+          'data-native-ui-snapshot-prepared',
+          'data-native-ui-snapshot',
+          'data-native-ui-snapshot-source',
+          'data-native-ui-snapshot-visible',
+        ].includes(attribute.name) &&
+        !original.hasAttribute(attribute.name)
+      )
         target.removeAttribute(attribute.name);
     for (const attribute of Array.from(original.attributes))
       if (!['id', 'slot', marker, 'aria-hidden'].includes(attribute.name)) target.setAttribute(attribute.name, attribute.value);
     target.classList.remove(prehiddenClass);
+    // Establish ownership before insertion/layout: glass can sample even a single Web paint.
+    target.toggleAttribute('data-native-ui-snapshot-prepared', isPrepared(original));
   };
   const syncBack = (target: HTMLIonBackButtonElement, original: HTMLIonBackButtonElement, surface: HTMLElement) => {
     copyAttributes(target, original);
@@ -220,26 +246,37 @@ export const createVerticalBarsWebProjection = (
   };
   const sameSources = (backs: HTMLIonBackButtonElement[], groups: ToolbarSource[]) =>
     backs.length === backProjections.length &&
-    backs.every((source, index) => source === backProjections[index].source) &&
+    backs.every((source, index) => source === backProjections[index].source && surfaceOf(source) === backProjections[index].root) &&
     groups.length === toolbarProjections.length &&
     groups.every(({ group, actions }, index) => {
       const current = toolbarProjections[index];
       return (
         group === current.source &&
+        surfaceOf(group) === current.root &&
         actions.length === current.actions.length &&
         actions.every((action, actionIndex) => action === current.actions[actionIndex].source)
       );
     });
   const syncExisting = () => {
     for (const { source, projection, root: surface } of backProjections) {
+      if (!surface.classList.contains(readyClass)) surface.classList.add(readyClass);
+      if (projectionState.isVisible(source)) {
+        projection.inert = true;
+        continue;
+      }
       syncBack(projection, source, surface);
       projection.inert = isCovered(source);
       if (projection.inert) projection.setAttribute('aria-hidden', 'true');
-      surface.classList.add(readyClass);
     }
     const offsets = new Map<HTMLElement, number>();
     for (const { projection, source, actions, root: surface } of toolbarProjections) {
+      if (!surface.classList.contains(readyClass)) surface.classList.add(readyClass);
       const topOffset = offsets.get(surface) ?? (findBack(surface) ? toolbarControlSize + toolbarControlGap : 0);
+      if (projectionState.isVisible(source) || actions.some((action) => projectionState.isVisible(action.source))) {
+        projection.inert = true;
+        offsets.set(surface, topOffset + toolbarGroupHeight(actions.length) + toolbarControlGap);
+        continue;
+      }
       if (actions.length === 1 && !projection.matches('ion-buttons')) syncAction(projection, actions[0].source);
       else copyAttributes(projection, source);
       projection.classList.add(toolbarProjectionClass, 'ion-cloned-element');
@@ -247,7 +284,6 @@ export const createVerticalBarsWebProjection = (
       // Preserve appearance without bypassing the modal's input/focus boundary.
       projection.inert = isCovered(source);
       if (projection.inert) projection.setAttribute('aria-hidden', 'true');
-      if (!surface.classList.contains(readyClass)) surface.classList.add(readyClass);
       if (projection.matches('ion-buttons')) actions.forEach(({ source: action, projection: clone }) => syncAction(clone, action));
       const frames = actions.map(({ source }) => verticalBarFrame(source));
       if (frames.every((frame) => !!frame)) {
@@ -291,6 +327,7 @@ export const createVerticalBarsWebProjection = (
         },
         { capture: true },
       );
+      projectionState.setTarget(source, projection);
       surface.append(projection);
       backProjections.push({ source, projection, root: surface, previousAriaHidden });
       source.setAttribute(marker, '');
@@ -324,6 +361,8 @@ export const createVerticalBarsWebProjection = (
         return { source, projection: clone, previousAriaHidden };
       });
       const surface = surfaceOf(group);
+      projectionState.setTarget(group, projection);
+      if (sources.length === 1) projectionState.setTarget(sources[0], projection);
       surface.append(projection);
       toolbarProjections.push({ source: group, root: surface, projection, actions });
       topOffset += toolbarGroupHeight(actions.length) + toolbarControlGap;
@@ -371,7 +410,14 @@ export const createVerticalBarsWebProjection = (
         attributeFilter: observingVerticalBars ? undefined : ['class'],
       });
     }
-    if (stopped || suspended || options.verticalBars?.enabled === false || !currentRoot || (!enabled() && !topModal(doc))) return restore();
+    if (
+      stopped ||
+      suspended ||
+      options.verticalBars?.enabled === false ||
+      !currentRoot ||
+      (!enabled() && !topModal(doc) && !projectionState.owners.length && !projectionState.preparedOwners.length)
+    )
+      return restore();
     const surfaces = new Set(
       Array.from(doc.querySelectorAll<HTMLIonBackButtonElement>(`ion-back-button:not(.${backProjectionClass})`)).map(surfaceOf),
     );
@@ -385,7 +431,7 @@ export const createVerticalBarsWebProjection = (
     if (enabled()) search.update(projectionRoot);
     else search.restore();
     if (!nextBacks.length && !groups.length && !search.source) return restore();
-    if (root === (topModal(doc) ?? currentRoot) && sameSources(nextBacks, groups)) {
+    if (root && sameSources(nextBacks, groups)) {
       syncExisting();
       reveal();
       return;
@@ -403,6 +449,7 @@ export const createVerticalBarsWebProjection = (
     } catch {
       restore();
     } finally {
+      win.dispatchEvent(new Event(targetsChangedEvent));
       const pending = waiters;
       waiters = [];
       pending.forEach((resolve) => resolve());
@@ -411,7 +458,7 @@ export const createVerticalBarsWebProjection = (
   const schedule = (): Promise<void> => {
     if (stopped) return Promise.resolve();
     // Release Web ownership before the native runtime can acknowledge its next frame.
-    if (!enabled() && !topModal(doc)) restore();
+    if (!enabled() && !topModal(doc) && !projectionState.owners.length && !projectionState.preparedOwners.length) restore();
     const done = new Promise<void>((resolve) => waiters.push(resolve));
     if (!frame) frame = win.requestAnimationFrame(update);
     return done;
@@ -439,6 +486,7 @@ export const createVerticalBarsWebProjection = (
       (observingVerticalBars &&
         records.some(
           (record) =>
+            !isProjectionMutation(record) &&
             record.attributeName !== marker &&
             record.attributeName !== toolbarTextMarker &&
             !prehideOnlyMutation(record) &&
@@ -467,14 +515,29 @@ export const createVerticalBarsWebProjection = (
   for (const name of ['ionViewWillEnter', 'ionViewWillLeave', 'ionViewDidEnter', 'ionViewDidLeave'])
     doc.addEventListener(name, pageLifecycle, { capture: true, signal: listeners.signal });
   doc.addEventListener(VERTICAL_BARS_TRANSITION_CANCELED, pageLifecycle, { capture: true, signal: listeners.signal });
-  for (const name of ['ionModalWillPresent', 'ionModalDidDismiss'])
-    doc.addEventListener(name, schedule, { capture: true, signal: listeners.signal });
+  const stopOverlays = enableSupportIonicOverlays(undefined, doc)!.subscribe(({ element, phase }) => {
+    if (!element?.matches('ion-modal')) return;
+    if (phase === 'willPresent') schedule();
+    // Retire modal clones before they can paint at the background rail offset.
+    if (phase === 'didDismiss') update();
+  });
+  listeners.signal.addEventListener('abort', stopOverlays, { once: true });
   win.addEventListener(
     'nativeUIVerticalBarsAcquire',
     (event) => {
       const instant = (event as CustomEvent<{ instant: boolean }>).detail?.instant ?? true;
       incomingInstant = undefined;
-      if (topModal(doc) && toolbarProjections.some(({ source }) => isCovered(source))) {
+      if ([...backProjections, ...toolbarProjections].some(({ source }) => isCovered(source))) {
+        // Conceal existing Web surfaces immediately; leave discovery and geometry
+        // to the scheduled update so acquisition does not create new controls.
+        const retained = [
+          ...backProjections,
+          ...toolbarProjections.filter(({ actions }) => actions.length > 1),
+          ...toolbarProjections.flatMap(({ actions }) => actions),
+        ];
+        for (const { source, projection } of retained)
+          for (const attribute of ['data-native-ui-vertical-bars', 'data-native-ui-vertical-bars-member'])
+            projection.toggleAttribute(attribute, source.hasAttribute(attribute));
         void schedule();
         return;
       }
@@ -505,6 +568,7 @@ export const createVerticalBarsWebProjection = (
   );
   win.addEventListener('resize', schedule, { signal: listeners.signal });
   win.addEventListener('nativeUIRefresh', schedule, { signal: listeners.signal });
+  win.addEventListener(sourcesChangedEvent, schedule, { signal: listeners.signal });
   schedule();
 
   return {

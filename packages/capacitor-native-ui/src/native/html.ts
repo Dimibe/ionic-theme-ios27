@@ -1,3 +1,4 @@
+import { getProjectionState } from './shared/covered-source';
 import { fitsClip } from './shared/clipping';
 import type { NativeUIRuntimeOptions, NativeUIRuntimeHandle } from './definitions';
 import { appendItem, createCandidate, type Candidate, type Identify } from './shared/candidate';
@@ -52,10 +53,14 @@ export const createHTMLWebProjection = (doc: Document, options: NativeUIRuntimeO
       },
     };
   }
+  const projectionState = getProjectionState(doc);
+  const { isProjectionMutation, sourcesChangedEvent, targetsChangedEvent } = projectionState;
   const win = doc.defaultView!;
   const owned = new Map<HTMLElement, { clone: HTMLButtonElement; aria: string | null; signature: string }>();
   const style = doc.createElement('style');
-  style.textContent = `[data-native-ui-web-source] { visibility: hidden !important; pointer-events: none !important; }`;
+  style.textContent = `[data-native-ui-web-source] { visibility: hidden !important; pointer-events: none !important; }
+    [data-native-ui-proxy][data-native-ui-snapshot-prepared] { position: absolute !important; }
+    [data-native-ui-proxy][data-native-ui-snapshot-prepared]:not([data-native-ui-snapshot-visible]) { visibility:hidden!important; }`;
   doc.head.append(style);
   let frame = 0;
   let stopped = false;
@@ -66,6 +71,7 @@ export const createHTMLWebProjection = (doc: Document, options: NativeUIRuntimeO
     if (!state) return;
     const focused = state.clone.contains(doc.activeElement);
     state.clone.remove();
+    if (stopped && projectionState.getTarget(source) === state.clone) projectionState.deleteTarget(source);
     source.removeAttribute('data-native-ui-web-source');
     if (focused && source.isConnected && !source.hasAttribute(marker)) source.focus();
     owned.delete(source);
@@ -85,13 +91,31 @@ export const createHTMLWebProjection = (doc: Document, options: NativeUIRuntimeO
     observer.disconnect();
     observer.observe(doc.documentElement, { subtree: true, childList: true, attributes: true, characterData: true });
     const wanted = new Set<HTMLElement>();
-    if (!suspended && options.verticalBars?.enabled !== false && host?.isConnected && options.root?.isConnected) {
+    if (options.verticalBars?.enabled !== false && host?.isConnected && options.root?.isConnected) {
       const sources = Array.from(options.root.querySelectorAll<HTMLElement>(htmlSelector));
       let back = false;
       for (const source of sources) {
         // An accepted native surface owns its source and descendants. Rejected sources
         // lose the marker and can return to the Web rail on the next render.
-        if (!htmlRailSource(source) || host.contains(source) || source.closest(`[${marker}]`)) continue;
+        if (!htmlRailSource(source) || host.contains(source)) continue;
+        const covered =
+          projectionState.isVisible(source) ||
+          (projectionState.owns(source) && !!owned.get(source)?.clone.hasAttribute(projectionState.imageMarker));
+        // Keep a fixed fallback host available before the first native capture.
+        const prepared =
+          (source.hasAttribute(marker) && source.hasAttribute('data-native-ui-vertical-bars')) ||
+          projectionState.preparedOwners.includes(source);
+        if ((suspended && !covered) || (!covered && !prepared && (source.closest(`[${marker}]`) || projectionState.owns(source)))) continue;
+        // Keep the prepared target stable through coverage and native restoration.
+        // Reading a changed/disabled source here must not replace its pre-touch image.
+        const existing = owned.get(source);
+        if (covered && existing) {
+          wanted.add(source);
+          existing.clone.inert = true;
+          existing.clone.setAttribute('aria-hidden', 'true');
+          back ||= existing.clone.getAttribute('data-native-ui-proxy') === 'back-button';
+          continue;
+        }
         const iconRoot = source.querySelector('ion-icon')?.shadowRoot;
         if (iconRoot) observer.observe(iconRoot, { subtree: true, childList: true, attributes: true, characterData: true });
         const candidate = measure(source, () => readHTMLControl(source, () => 'web', options));
@@ -119,14 +143,21 @@ export const createHTMLWebProjection = (doc: Document, options: NativeUIRuntimeO
               !htmlRailSource(source) ||
               !host.isConnected ||
               current.control.items[0].disabled ||
-              source.closest(`[${marker}]`)
+              source.closest(`[${marker}]`) ||
+              projectionState.owns(source)
             )
               return;
             source.click(); // Source owns submission, custom handlers and back navigation.
             schedule();
           });
+          clone.toggleAttribute('data-native-ui-snapshot-prepared', prepared);
+          projectionState.setTarget(source, clone);
           host.append(clone);
         }
+        state.clone.toggleAttribute('data-native-ui-snapshot-prepared', prepared);
+        state.clone.inert = prepared || covered;
+        if (prepared || covered) state.clone.setAttribute('aria-hidden', 'true');
+        else state.clone.removeAttribute('aria-hidden');
         if (state.signature !== signature) {
           state.signature = signature;
           state.clone.replaceChildren();
@@ -158,22 +189,30 @@ export const createHTMLWebProjection = (doc: Document, options: NativeUIRuntimeO
     });
     // Moving an existing button can blur it; retain keyboard focus across source reordering.
     if (focused && doc.activeElement !== focused) focused.focus({ preventScroll: true });
+    win.dispatchEvent(new Event(targetsChangedEvent));
     // Ignore our own synchronous DOM writes; later application mutations still schedule a refresh.
     observer.takeRecords();
   };
   const schedule = () => {
     if (!stopped && !frame) frame = win.requestAnimationFrame(render);
   };
-  const observer = new MutationObserver(schedule);
+  const observer = new MutationObserver((records) => {
+    if (records.some((record) => !isProjectionMutation(record))) schedule();
+  });
   win.addEventListener('resize', schedule);
   win.addEventListener('nativeUIRefresh', schedule);
+  win.addEventListener(sourcesChangedEvent, schedule);
   render();
   return {
     markForCheck: schedule,
-    getStatus: () => ({ state: stopped ? 'stopped' : 'web', projected: owned.size, updates }),
+    getStatus: () => ({
+      state: stopped ? 'stopped' : 'web',
+      projected: [...owned.values()].filter(({ clone }) => !clone.inert).length,
+      updates,
+    }),
     async suspend() {
       suspended++;
-      for (const source of owned.keys()) restore(source);
+      render();
       let resumed = false;
       return {
         async resume() {
@@ -192,6 +231,7 @@ export const createHTMLWebProjection = (doc: Document, options: NativeUIRuntimeO
       win.cancelAnimationFrame(frame);
       win.removeEventListener('resize', schedule);
       win.removeEventListener('nativeUIRefresh', schedule);
+      win.removeEventListener(sourcesChangedEvent, schedule);
       for (const source of owned.keys()) restore(source);
       style.remove();
     },

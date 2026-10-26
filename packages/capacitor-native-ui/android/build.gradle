@@ -41,6 +41,17 @@ android {
     lintOptions {
         abortOnError = false
     }
+    // Acceptance app/assets must never enter a consuming application's debug build.
+    if (project.hasProperty('nativeUIEngineIntegrationTest')) {
+        sourceSets {
+            debug {
+                java.srcDirs += 'fixtures/debug/java'
+                assets.srcDirs += ['fixtures/debug/assets', layout.buildDirectory.dir('generated/engine-fixture-assets').get().asFile]
+                manifest.srcFile 'fixtures/debug/AndroidManifest.xml'
+            }
+            androidTest.java.srcDirs += 'fixtures/androidTest/java'
+        }
+    }
     buildFeatures { compose true }
     kotlinOptions { jvmTarget = '21' }
     compileOptions {
@@ -52,9 +63,13 @@ android {
 repositories {
     google()
     mavenCentral()
+    // Explicit local verification override; installed consumers resolve Maven normally.
+    if (project.hasProperty('nativeUIEngineRepository')) maven { url = uri(project.property('nativeUIEngineRepository')) }
 }
 
 dependencies {
+    def engineVersion = new groovy.json.JsonSlurper().parse(file('../package.json')).dependencies['@rdlabo/capacitor-native-ui-engine']
+    implementation "io.github.rdlabo:native-ui-engine:$engineVersion"
     api platform("androidx.compose:compose-bom:2025.10.00")
     api "androidx.compose.ui:ui"
     api "androidx.compose.foundation:foundation"
@@ -66,4 +81,17 @@ dependencies {
     testImplementation "org.json:json:20250517"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+}
+
+if (project.hasProperty('nativeUIEngineIntegrationTest')) {
+    def engineSource = file('../../capacitor-native-ui-engine/src')
+    def fixtureBundle = layout.buildDirectory.file('generated/engine-fixture-assets/public/native-ui-engine.js')
+    def bundleFixture = tasks.register('bundleNativeUIEngineFixture', Exec) {
+        inputs.dir engineSource
+        outputs.file fixtureBundle
+        commandLine file('../../../node_modules/.bin/esbuild').absolutePath,
+            new File(engineSource, 'index.ts').absolutePath, '--bundle', '--format=iife',
+            '--global-name=NativeUIEngine', "--outfile=${fixtureBundle.get().asFile.absolutePath}"
+    }
+    tasks.matching { it.name == 'preDebugBuild' }.configureEach { dependsOn bundleFixture }
 }

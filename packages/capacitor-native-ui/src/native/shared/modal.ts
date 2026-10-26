@@ -1,3 +1,4 @@
+import { enableSupportIonicOverlays, ionicModalStack } from '@rdlabo/capacitor-native-ui-engine/ionic';
 import type { Frame } from '../definitions';
 import { readModalAnimation, type ModalAnimation } from './modal-animation';
 
@@ -9,7 +10,15 @@ export const modalPreparing = (modal: Element) => presentations.has(modal) && pr
 
 const dismissing = new WeakSet<Element>();
 export const modalDismissing = (modal: Element) => dismissing.has(modal);
-const states = new WeakMap<Document, { top?: HTMLIonModalElement }>();
+interface ModalState {
+  top?: HTMLIonModalElement;
+  moving?: HTMLIonModalElement;
+  stack: HTMLIonModalElement[];
+}
+const states = new WeakMap<Document, ModalState>();
+export const modalStack = (doc: Document): readonly HTMLIonModalElement[] => states.get(doc)?.stack ?? [];
+export const movingModal = (doc: Document) => states.get(doc)?.moving;
+export const modalMotionEvent = 'nativeUIModalMotion';
 
 export const topModal = (doc: Document): HTMLIonModalElement | undefined => states.get(doc)?.top;
 export const modalUsesVerticalBars = (element: Element): boolean => {
@@ -66,10 +75,9 @@ export const releaseSheetBackdropGesture = (modal: HTMLElement, role?: string): 
 
 export const observeVerticalBarsModals = (doc: Document, animate: () => boolean = () => false): (() => void) => {
   const win = doc.defaultView!;
-  const state: { top?: HTMLIonModalElement } = {};
+  const state: ModalState = { stack: [] };
   states.set(doc, state);
-  const presenting = new Set<HTMLIonModalElement>();
-  const dismissed = new WeakSet<HTMLIonModalElement>();
+  const overlays = enableSupportIonicOverlays(undefined, doc)!;
   const observed = new Set<Element>();
   const listeners = new AbortController();
   let stopped = false;
@@ -83,11 +91,9 @@ export const observeVerticalBarsModals = (doc: Document, animate: () => boolean 
     if (stopped) return;
     const app = doc.querySelector('ion-app.ios-theme-vertical-bars');
     const modals = Array.from(doc.querySelectorAll<HTMLIonModalElement>('ion-modal'));
-    const active = modals.filter(
-      (modal) => !dismissed.has(modal) && ((modal as HTMLIonModalElement & { presented?: boolean }).presented || presenting.has(modal)),
-    );
-    for (const modal of presenting) if (!modal.isConnected) presenting.delete(modal);
-    const top = active.sort((a, b) => a.overlayIndex - b.overlayIndex).slice(-1)[0];
+    const active = ionicModalStack(doc) as HTMLIonModalElement[];
+    state.stack = active;
+    const top = state.stack[state.stack.length - 1];
     let changed = state.top !== top;
     state.top = top;
     if (top && modalPreparing(top)) {
@@ -100,8 +106,25 @@ export const observeVerticalBarsModals = (doc: Document, animate: () => boolean 
       }
     }
     const nextBounds = top && !modalPreparing(top) ? JSON.stringify(modalVerticalBarFrame(top)) : '';
+    const moved = bounds !== '' && nextBounds !== '' && bounds !== nextBounds;
     changed ||= bounds !== nextBounds;
     bounds = nextBounds;
+    const wrapper = top?.shadowRoot?.querySelector<HTMLElement>('[part~="content"]');
+    const animating = wrapper?.getAnimations().some((animation) => animation.playState === 'running') ?? false;
+    const moving =
+      top &&
+      app &&
+      !modalPreparing(top) &&
+      !modalDismissing(top) &&
+      (state.moving === top ? pointerActive || animating : moved && (pointerActive || animating))
+        ? top
+        : undefined;
+    if (state.moving !== moving) {
+      const previous = state.moving;
+      state.moving = moving;
+      win.dispatchEvent(new CustomEvent(modalMotionEvent, { detail: { modal: moving ?? previous, moving: !!moving } }));
+      changed = true;
+    }
     const wanted = new Set<Element>();
     for (const modal of modals) {
       const content = modal.shadowRoot?.querySelector<HTMLElement>('[part~="content"]');
@@ -133,7 +156,7 @@ export const observeVerticalBarsModals = (doc: Document, animate: () => boolean 
         observed.add(element);
       }
     }
-    if (changed) win.dispatchEvent(new Event('nativeUIRefresh'));
+    if (changed) win.dispatchEvent(new CustomEvent('nativeUIRefresh', { detail: { modalMotion: !!state.moving } }));
     if (
       top &&
       (modalPreparing(top) ||
@@ -150,32 +173,22 @@ export const observeVerticalBarsModals = (doc: Document, animate: () => boolean 
   const observer = new MutationObserver(schedule);
   const observation = { subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'style'] };
   observer.observe(doc.documentElement, observation);
-  for (const name of ['ionModalWillPresent', 'ionModalDidPresent', 'ionModalWillDismiss', 'ionModalDidDismiss', 'ionBreakpointDidChange']) {
-    doc.addEventListener(
-      name,
-      (event) => {
-        const modal = event.target as HTMLIonModalElement;
-        if (modal.localName !== 'ion-modal') return;
-        if (name === 'ionModalWillPresent' && animate() && modal.closest('ion-app.ios-theme-vertical-bars')) presentations.set(modal, null);
-        else if (name === 'ionModalDidPresent' || name === 'ionModalWillDismiss' || name === 'ionModalDidDismiss') {
-          if (presentations.delete(modal)) bounds = '';
-        }
-        if (name === 'ionModalWillDismiss') {
-          dismissing.add(modal);
-          if (animate()) releaseSheetBackdropGesture(modal, (event as CustomEvent<{ role?: string }>).detail?.role);
-        } else if (name === 'ionModalWillPresent' || name === 'ionModalDidDismiss') dismissing.delete(modal);
-        if (name === 'ionModalDidDismiss') {
-          presenting.delete(modal);
-          dismissed.add(modal);
-        } else {
-          presenting.add(modal);
-          dismissed.delete(modal);
-        }
-        refresh();
-      },
-      { capture: true, signal: listeners.signal },
-    );
-  }
+  const stopOverlays = overlays.subscribe(({ element, phase, event }) => {
+    if (!element?.matches('ion-modal')) {
+      if (phase === 'change') refresh();
+      return;
+    }
+    const modal = element as HTMLIonModalElement;
+    if (phase === 'willPresent' && animate() && modal.closest('ion-app.ios-theme-vertical-bars')) presentations.set(modal, null);
+    else if (phase === 'didPresent' || phase === 'willDismiss' || phase === 'didDismiss') {
+      if (presentations.delete(modal)) bounds = '';
+    }
+    if (phase === 'willDismiss') {
+      dismissing.add(modal);
+      if (animate()) releaseSheetBackdropGesture(modal, (event as CustomEvent<{ role?: string }> | undefined)?.detail?.role);
+    } else if (phase === 'willPresent' || phase === 'didDismiss') dismissing.delete(modal);
+    refresh();
+  });
   doc.addEventListener(
     'pointerdown',
     (event) => {
@@ -207,6 +220,7 @@ export const observeVerticalBarsModals = (doc: Document, animate: () => boolean 
   refresh();
   return () => {
     stopped = true;
+    stopOverlays();
     win.cancelAnimationFrame(frame);
     observer.disconnect();
     resize?.disconnect();

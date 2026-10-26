@@ -13,13 +13,14 @@ const sourceFiles = [
   'demo/package-lock.json',
   'packages/theme-ios27/package.json',
   'packages/capacitor-native-ui/package.json',
+  'packages/capacitor-native-ui-engine/package.json',
 ];
 const originals = sourceFiles.map((file) => readFileSync(file, 'utf8'));
 try {
   const packed = Object.values(JSON.parse(
     execFileSync('npm', ['pack', '--workspaces', '--ignore-scripts', '--json', '--pack-destination', dir], { encoding: 'utf8' }),
   ));
-  assert.equal(packed.length, 2);
+  assert.equal(packed.length, 3);
   sourceFiles.forEach((file, index) => assert.equal(readFileSync(file, 'utf8'), originals[index], `${file} changed while packing`));
   const nativeName = '@rdlabo/capacitor-native-ui';
   const manifests = new Map();
@@ -92,6 +93,16 @@ try {
 
       assert(!manifest.dependencies?.['@rdlabo/ionic-theme-ios27'], 'Native UI must not depend on the theme');
       assert(!files.has('dist/native-integration/transition.js'), 'Ionic transition adapter belongs to the theme');
+    } else if (manifest.name === '@rdlabo/capacitor-native-ui-engine') {
+      assert.equal(manifest.capacitor, undefined, 'Engine is a library, never a registered plugin');
+      assert(!files.has('Package.swift'), 'Native SwiftPM dependencies resolve from Git, not npm');
+      assert(files.has('CapacitorNativeUIEngine.podspec'));
+      assert.equal(manifest.license, 'Zlib');
+      assert(files.has('NOTICE'));
+      assert.match(readFileSync(join(packageRoot, 'LICENSE'), 'utf8'), /origin of this software must not be misrepresented/);
+      assert.match(readFileSync(join(packageRoot, 'NOTICE'), 'utf8'), /MIT License/);
+      assert(files.has('ios/Sources/CapacitorNativeUIEngine/CoveredSnapshots.swift'));
+      assert.equal(Object.keys(manifest.dependencies ?? {}).length, 0, 'Engine must not depend on a renderer');
     } else {
       assert.equal(manifest.name, '@rdlabo/ionic-theme-ios27');
       assert.equal(manifest.capacitor, undefined, 'Only the native package registers a Capacitor plugin');
@@ -110,6 +121,7 @@ try {
       assert(existsSync(join(dir, 'consumer.css')));
     }
   }
+  assert.equal(manifests.get(nativeName).dependencies['@rdlabo/capacitor-native-ui-engine'], manifests.get('@rdlabo/capacitor-native-ui-engine').version);
   assert.equal(manifests.get('@rdlabo/ionic-theme-ios27').dependencies[nativeName], manifests.get(nativeName).version);
   // Verify the core entry with neither Ionic nor the Ionic utilities installed.
   assert.equal(manifests.get(nativeName).peerDependenciesMeta['@ionic/core'].optional, true);
@@ -119,13 +131,48 @@ try {
   execFileSync(process.execPath, ['--input-type=module', '-e', `
     import assert from 'node:assert/strict';
     import { enableNativeUI } from '@rdlabo/capacitor-native-ui/core';
+    import { enableSupportIonicOverlays } from '@rdlabo/capacitor-native-ui-engine/ionic';
     assert.equal(typeof enableNativeUI, 'function');
+    assert.equal(typeof enableSupportIonicOverlays, 'function');
+    assert.equal(enableSupportIonicOverlays(), undefined); // Safe without a Document (SSR).
     await assert.rejects(import('@ionic/core'), { code: 'ERR_MODULE_NOT_FOUND' });
     await assert.rejects(import('@rdlabo/ionic-theme-utils'), { code: 'ERR_MODULE_NOT_FOUND' });
   `], { cwd: dir, stdio: 'inherit' });
   const consumer = join(dir, 'consumer.ts');
   writeFileSync(consumer, `
     import { enableNativeUI } from '@rdlabo/capacitor-native-ui/core';
+    import { createWebProjection, createWebProjectionScope, type WebProjectionTransport } from '@rdlabo/capacitor-native-ui-engine';
+    import { enableSupportIonicOverlays } from '@rdlabo/capacitor-native-ui-engine/ionic';
+    enableSupportIonicOverlays();
+    enableSupportIonicOverlays({ exclude: '[data-nonblocking-overlay]', covers: (overlay, target) => undefined });
+    async function projectionContract(transport: WebProjectionTransport) {
+      // @ts-expect-error A scope must explicitly declare its source DOM boundary.
+      createWebProjectionScope('consumer');
+      const scope = createWebProjectionScope(document.createElement('div'), 'consumer');
+      // @ts-expect-error A document is not a fallback element.
+      createWebProjectionScope(document, 'consumer');
+      const host = document.createElement('div');
+      const projection = await createWebProjection(scope, transport, {
+        wake() {}, blocked: () => false,
+      });
+      projection.begin();
+      // @ts-expect-error Projection DOM is configured at initialization, not on begin.
+      projection.begin(host);
+      // @ts-expect-error A cover requires a prepared token.
+      transport.send({ action: 'cover' });
+      // @ts-expect-error Preparation requires the accepted revision and viewport.
+      transport.send({ action: 'prepare', ids: ['button'] });
+      // @ts-expect-error Restore requires destination frames and viewport width.
+      transport.send({ action: 'restore', token: 'image' });
+      const image = await transport.send({ action: 'prepare', revision: 1, viewportWidth: 390, ids: ['button'] });
+      if (image.token) image.parts.map(part => part.url);
+      const covered = await transport.send({ action: 'cover', token: 'image' });
+      const shown: boolean = covered.shown;
+      // @ts-expect-error A cover response is not a prepared capture.
+      covered.parts;
+      // @ts-expect-error A successful prepare must include its parts.
+      const incomplete: Awaited<ReturnType<typeof transport.send<{ action: 'prepare'; revision: number; viewportWidth: number; ids: string[] }>>> = { token: 'image' };
+    }
     async function start(root: HTMLElement) {
       const shell = await enableNativeUI({ root, controls: { tabs: false }, verticalBars: { enabled: true } });
       await shell.disableVerticalControlArea();
@@ -148,7 +195,7 @@ try {
     enableNativeUI({ verticalBars: { enabled: 'auto' } });
   `);
   execFileSync(process.execPath, [resolve('node_modules/typescript/bin/tsc'), '--noEmit', '--strict', '--module', 'esnext', '--moduleResolution', 'bundler', '--target', 'es2022', '--lib', 'es2022,dom', consumer], {cwd: dir, stdio: 'inherit'});
-  // Only external dependencies come from the workspace; both packages resolve from archives.
+  // Only external dependencies come from the workspace; all packages resolve from archives.
   for (const name of ['@ionic', '@stencil', '@rdlabo/ionic-theme-utils', 'ionicons', 'typescript']) {
     symlinkSync(resolve('node_modules', name), join(dir, 'node_modules', name), 'dir');
   }
@@ -202,7 +249,7 @@ try {
     withNativeUITransition(iosTransitionAnimation);
   `);
   execFileSync(process.execPath, [resolve('node_modules/typescript/bin/tsc'), '--noEmit', '--strict', '--skipLibCheck', '--module', 'esnext', '--moduleResolution', 'bundler', '--target', 'es2022', '--lib', 'es2022,dom', consumer], { cwd: dir, stdio: 'inherit' });
-  console.log('Both package archives, public exports, plugin ownership, dependency direction and standalone Sass verified.');
+  console.log('All three package archives, public exports, plugin ownership, dependency direction and standalone Sass verified.');
 } finally {
   rmSync(dir, { recursive: true, force: true });
 }

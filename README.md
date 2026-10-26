@@ -51,6 +51,14 @@ Both packages support Ionic 8.8.1 or later within Ionic 8 or 9. Native UI requir
 
 Use standard native buttons without Ionic through the [plain HTML adapter](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/framework-independent), or keep Ionic markup and enable only [Vertical Bars](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/configuration). Both use the same native renderers.
 
+## For plugin maintainers
+
+[`@rdlabo/capacitor-native-ui-engine`](packages/capacitor-native-ui-engine/README.md) provides DOM/native placement, scroll tracking and prepared-image handoff. It is a library dependency for plugin maintainers, not a Capacitor plugin for applications. Native libraries support iOS and Android.
+
+## Licenses
+
+The theme and `@rdlabo/capacitor-native-ui` remain MIT. Only [`@rdlabo/capacitor-native-ui-engine`](packages/capacitor-native-ui-engine/LICENSE) uses Zlib; its [NOTICE](packages/capacitor-native-ui-engine/NOTICE) retains the upstream MIT notice for adapted portions. The repository-root MIT license does not replace the engine's package-specific license.
+
 ## Maintenance
 
 Release from a clean, up-to-date `main` with `npm run release`. Request a PR beta with `/beta`. See the [workflows](.github/workflows) for CI and release implementation.
