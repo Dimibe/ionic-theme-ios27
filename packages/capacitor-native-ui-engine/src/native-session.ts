@@ -1,3 +1,4 @@
+import { projectionPlacement } from './projection-placement.js';
 import { getOverlayCoordinator } from './overlays.js';
 import { readScrollPlacement } from './scroll-placement.js';
 import { projectionAncestors } from './geometry.js';
@@ -11,6 +12,11 @@ export interface NativeSessionConfiguration {
   id: string;
   plugin: string;
   projectionSelector: string;
+  /** Recovery while native is requested. Explicit web/none destinations take precedence. */
+  failedFallback?: 'web' | 'native';
+  captureMode?: 'composited' | 'view';
+  /** Native registration accepts a final placement in its reveal request. */
+  placementHandoff?: boolean;
   receiveListeners?: {
     update?: string[];
     projection?: Partial<Record<ProjectionDestination, string[]>>;
@@ -33,7 +39,7 @@ export interface NativeSessionBridge {
 /** Native startup calls this; application code does not initialize or wrap the plugin. */
 export const startNativeSession = async (
   config: NativeSessionConfiguration,
-  bridge: NativeSessionBridge,
+  nativeBridge: NativeSessionBridge,
   plugin: { addListener(name: string, listener: (event: unknown) => void): Promise<ListenerHandle> } = {
     addListener: async (name, listener) => {
       const capacitor = (
@@ -57,12 +63,101 @@ export const startNativeSession = async (
   const effectiveDestination = (): ProjectionDestination =>
     requestedDestination === 'native' && target && overlays.isCovered(target) ? 'web' : requestedDestination;
   let automaticMotion = false;
+  let placementPending = false;
   let nativeScroll = false;
   let scrollOwner: HTMLElement | undefined;
   let scrollTimer: ReturnType<typeof setTimeout> | undefined;
   let manager: WebProjection | undefined;
+  let startingProjection = false;
+  const beginProjection = () => {
+    const previous = startingProjection;
+    startingProjection = true;
+    try {
+      manager?.begin();
+    } finally {
+      startingProjection = previous;
+    }
+  };
   let target: HTMLElement | undefined;
+  const placementOwner = {};
+  let coveredToken: string | undefined;
+  let placementEpoch = 0;
+  const clearPlacement = () => {
+    placementEpoch++;
+    coveredToken = undefined;
+    const binding = projectionPlacement(target);
+    if (binding?.owner === placementOwner) {
+      binding.projected = false;
+      binding.owner = undefined;
+    }
+  };
+  const bridge: NativeSessionBridge = {
+    listen: (listener) => nativeBridge.listen(listener),
+    send: (request) => {
+      if (!config.placementHandoff) return nativeBridge.send(request);
+      const binding = projectionPlacement(target);
+      if (request.action === 'cover') {
+        const epoch = ++placementEpoch;
+        coveredToken = request.token;
+        if (binding) {
+          binding.owner = placementOwner;
+          binding.projected = false;
+        }
+        return nativeBridge
+          .send(request)
+          .then((result) => {
+            if (epoch === placementEpoch && binding === projectionPlacement(target) && binding?.owner === placementOwner)
+              binding.projected = result?.shown === true;
+            return result;
+          })
+          .catch((error) => {
+            if (epoch === placementEpoch && binding?.owner === placementOwner) {
+              clearPlacement();
+              binding.invalidate();
+            }
+            throw error;
+          });
+      }
+      const releasing = request.action === 'release' && request.token === coveredToken;
+      const revealing =
+        coveredToken &&
+        (request.action === 'restore' || releasing || request.action === 'reset' || (request.action === 'visibility' && request.visible));
+      if (revealing) placementEpoch++;
+      const epoch = placementEpoch;
+      const failed = () => {
+        if (epoch !== placementEpoch || binding?.owner !== placementOwner) return;
+        clearPlacement();
+        binding.invalidate();
+      };
+      // Measure synchronously and use the existing ordered reveal/draw acknowledgement.
+      try {
+        const payload =
+          revealing && binding?.owner === placementOwner
+            ? { ...request, token: ('token' in request ? request.token : coveredToken)!, placement: binding.measure() }
+            : request;
+        return nativeBridge
+          .send(payload)
+          .then((result) => {
+            if (
+              epoch === placementEpoch &&
+              (request.action === 'resume' || releasing || request.action === 'reset' || request.action === 'visibility')
+            )
+              clearPlacement();
+            return result;
+          })
+          .catch((error) => {
+            failed();
+            throw error;
+          });
+      } catch (error) {
+        failed();
+        return Promise.reject(error);
+      }
+    },
+  };
+
   let revision = 0;
+  let contentRevision = 0;
   let generation = 0;
   let restoring = false;
   let initializing = false;
@@ -78,7 +173,7 @@ export const startNativeSession = async (
   };
   const setVisibility = () => {
     if (!target) return;
-    if (destination === 'web') target.removeAttribute(marker);
+    if (destination === 'web' || (destination === 'native' && placementPending)) target.removeAttribute(marker);
     else target.setAttribute(marker, destination);
   };
   const sources = () => {
@@ -94,8 +189,27 @@ export const startNativeSession = async (
       },
     ];
   };
-  const wake = () => {
+  const recoverFailedProjection = async () => {
     if (stopped) return;
+    const version = generation;
+    const native = config.failedFallback === 'native' && effectiveDestination() === 'native' && !!target?.isConnected;
+    await bridge.send({ action: 'visibility', visible: native }).catch(() => {});
+    if (stopped || version !== generation) return;
+    if (native || destination === 'none') setVisibility();
+    else target?.removeAttribute(marker);
+  };
+  const applyFailedFallback = () => {
+    if (!automaticMotion || destination !== 'native' || !target?.isConnected || manager?.token || manager?.restoring) return;
+    const native = config.failedFallback === 'native';
+    void bridge.send({ action: 'visibility', visible: native }).catch(() => {});
+    if (native) setVisibility();
+    else target.removeAttribute(marker);
+  };
+  const wake = () => {
+    // begin() can synchronously retire a previous return before installing its next
+    // image. That intermediate state is not a failed projection or a new reveal.
+    if (stopped || startingProjection) return;
+    applyFailedFallback();
     if (destination === 'web' && manager && !manager.token && !manager.restoring) {
       void bridge.send({ action: 'visibility', visible: false }).catch(() => {});
       target?.removeAttribute(marker);
@@ -110,6 +224,7 @@ export const startNativeSession = async (
       .send({ action: 'resume' })
       .then(() => {
         if (stopped || version !== generation || current !== manager) return;
+        placementPending = false;
         current.updated(undefined, [sourceID], ++revision);
         setVisibility();
         schedule();
@@ -117,8 +232,7 @@ export const startNativeSession = async (
       .catch(() => {
         if (version !== generation || stopped) return;
         current.invalidate();
-        void bridge.send({ action: 'visibility', visible: false }).catch(() => {});
-        target?.removeAttribute(marker);
+        void recoverFailedProjection();
       })
       .finally(() => {
         restoring = false;
@@ -134,14 +248,17 @@ export const startNativeSession = async (
     const found = findTarget();
     if (found !== target) {
       generation++;
+      clearPlacement();
       target?.removeAttribute(marker);
       await manager?.destroy();
       manager = undefined;
       if (stopped) return;
       target = found;
+      placementPending = false;
       sizeObserver.disconnect();
       if (target) sizeObserver.observe(target);
     }
+    refreshScrollListeners();
     destination = effectiveDestination();
     if (!target) {
       await bridge.send({ action: 'visibility', visible: false });
@@ -153,9 +270,11 @@ export const startNativeSession = async (
       try {
         const created = await createWebProjection(createWebProjectionScope(target, config.id), bridge, {
           wake,
-          blocked: () => destination !== 'native' || automaticMotion,
+          blocked: () => destination !== 'native' || automaticMotion || (placementPending && !manager?.token),
           revision: () => revision,
+          captureRevision: config.captureMode === 'view' ? () => contentRevision : undefined,
           transient: true,
+          opaqueUnderlay: config.captureMode === 'view',
         });
         if (stopped || version !== generation) {
           await created.destroy();
@@ -167,6 +286,11 @@ export const startNativeSession = async (
       }
     }
     if (stopped) return;
+    if (destination === 'native' && placementPending) {
+      await bridge.send({ action: 'visibility', visible: false });
+      setVisibility();
+      return;
+    }
     if (destination === 'native') {
       const version = generation;
       await bridge.send({ action: 'visibility', visible: true });
@@ -183,7 +307,7 @@ export const startNativeSession = async (
       const tracking = await bridge.send({ action: 'track', viewportWidth: innerWidth, ...(scroll ? { scroll } : {}) });
       if (stopped || version !== generation) return;
       nativeScroll = tracking?.tracked === true;
-      manager.consider(++revision, sources());
+      manager.consider(config.captureMode === 'view' ? contentRevision : ++revision, sources());
     } else {
       await bridge.send({ action: 'visibility', visible: false });
       setVisibility();
@@ -201,13 +325,8 @@ export const startNativeSession = async (
           await reconcile();
         }
       } catch {
-        const version = generation;
-        // A partial native update must not leave live content above the Web fallback.
-        await bridge.send({ action: 'visibility', visible: false }).catch(() => {});
-        if (!stopped && version === generation) {
-          if (destination === 'none') setVisibility();
-          else target?.removeAttribute(marker);
-        }
+        // Preserve the selected recovery policy without overriding a newer destination.
+        await recoverFailedProjection();
       } finally {
         reconciling = false;
         if (scheduled) schedule();
@@ -220,18 +339,34 @@ export const startNativeSession = async (
   };
   const sizeObserver = new ResizeObserver(resized);
   window.addEventListener('resize', resized);
+  const scrollAncestors = new Set<HTMLElement>();
+  const handledScrolls = new WeakSet<Event>();
   const onScroll = (event: Event) => {
-    if (stopped || destination !== 'native' || !target || !(event.target instanceof Node) || !event.target.contains(target)) return;
-    if (nativeScroll && event.target === scrollOwner) {
-      manager?.changed(event.target);
+    const owner = event.composedPath()[0] ?? event.target;
+    if (
+      stopped ||
+      destination !== 'native' ||
+      !target ||
+      handledScrolls.has(event) ||
+      (owner !== document && ![...projectionAncestors(target)].includes(owner as HTMLElement))
+    )
+      return;
+    handledScrolls.add(event);
+    if (nativeScroll && owner === scrollOwner) {
+      manager?.changed(owner as EventTarget);
       return;
     }
     if (!automaticMotion) {
+      // A fresh gesture supersedes the preceding presentation's pending draw ACK.
+      // begin() retires that return image and starts another presentation on the same manager.
+      if (restoring || manager?.restoring) generation++;
       automaticMotion = true;
-      manager?.begin();
-      if (!manager?.token) void bridge.send({ action: 'visibility', visible: false }).catch(() => {});
-      target.removeAttribute(marker);
-    } else manager?.changed();
+      beginProjection();
+      placementPending = config.failedFallback !== 'native';
+      if (manager?.token) target.removeAttribute(marker);
+      else applyFailedFallback();
+    } else if (config.captureMode === 'view') manager?.moved();
+    else manager?.changed();
     clearTimeout(scrollTimer);
     scrollTimer = setTimeout(() => {
       automaticMotion = false;
@@ -240,8 +375,37 @@ export const startNativeSession = async (
       if (!manager?.restoring) schedule();
     }, 100);
   };
+  // Listen on composed-tree ancestors themselves: non-composed scroll events inside
+  // Ionic's shadow tree never reach document, and Node.contains excludes slotted children.
+  const refreshScrollListeners = () => {
+    const next = new Set(target ? projectionAncestors(target) : []);
+    const changed = next.size !== scrollAncestors.size || [...next].some((element) => !scrollAncestors.has(element));
+    for (const element of scrollAncestors)
+      if (!next.has(element)) {
+        element.removeEventListener('scroll', onScroll);
+        element.removeEventListener('slotchange', slotChanged);
+        scrollAncestors.delete(element);
+      }
+    for (const element of next)
+      if (!scrollAncestors.has(element)) {
+        element.addEventListener('scroll', onScroll, { passive: true });
+        element.addEventListener('slotchange', slotChanged);
+        scrollAncestors.add(element);
+      }
+    if (changed) {
+      nativeScroll = false;
+      scrollOwner = undefined;
+      manager?.invalidate();
+      schedule();
+    }
+  };
+  const slotChanged = () => {
+    refreshScrollListeners();
+    schedule();
+  };
   document.addEventListener('scroll', onScroll, true);
   const observer = new MutationObserver((records) => {
+    refreshScrollListeners();
     if (findTarget() !== target) schedule();
     // Moving the same host into or out of an overlay changes coverage, not registration.
     else if (target && records.some((record) => record.type === 'childList')) applyDestination(effectiveDestination());
@@ -269,7 +433,7 @@ export const startNativeSession = async (
           setVisibility();
         });
     } else if (destination === 'web') {
-      manager?.begin();
+      beginProjection();
       if (!manager?.token) void bridge.send({ action: 'visibility', visible: false }).catch(() => {});
       setVisibility();
     } else if (destination === 'native') {
@@ -283,12 +447,18 @@ export const startNativeSession = async (
   const destroy = async () => {
     if (stopped) return;
     stopped = true;
+    clearPlacement();
     generation++;
     stopOverlays();
     observer.disconnect();
     sizeObserver.disconnect();
     window.removeEventListener('resize', resized);
     document.removeEventListener('scroll', onScroll, true);
+    for (const element of scrollAncestors) {
+      element.removeEventListener('scroll', onScroll);
+      element.removeEventListener('slotchange', slotChanged);
+    }
+    scrollAncestors.clear();
     clearTimeout(scrollTimer);
     target?.removeAttribute(marker);
     style.remove();
@@ -310,11 +480,13 @@ export const startNativeSession = async (
       (next, updated) => {
         if (stopped) return;
         if (next) {
+          if (next === 'native') placementPending = false;
           requestedDestination = next;
           void bridge.send({ action: 'destination', destination: next }).catch(() => {});
           applyDestination(effectiveDestination(), true);
         }
         if (updated) {
+          contentRevision++;
           manager?.changed();
           if (destination === 'native') schedule();
         }
@@ -326,7 +498,22 @@ export const startNativeSession = async (
     destination = effectiveDestination();
     ready = true;
     schedule();
-    return { destroy };
+    return {
+      destroy,
+      show: () => {
+        placementPending = false;
+        requestedDestination = 'native';
+        applyDestination(effectiveDestination(), true);
+      },
+      hide: () => {
+        requestedDestination = destination = 'none';
+        generation++;
+        automaticMotion = false;
+        clearTimeout(scrollTimer);
+        manager?.invalidate();
+        setVisibility();
+      },
+    };
   } catch (error) {
     await destroy();
     throw error;

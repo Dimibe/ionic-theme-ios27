@@ -4,7 +4,7 @@
 
 The engine associates existing DOM and native views, tracks supported scrolling, prepares native images before interaction, and manages image handoff and native restoration. The consuming plugin creates, attaches, positions and sizes its native views, provides the corresponding DOM, and reports presentation events. Registration does not lay out a native view from the DOM or resize it when the DOM changes. Existing renderers can also use the low-level APIs with their own ordered transport.
 
-The native libraries support iOS (`UIKit` / `WKWebView`) and Android (`View` / `WebView`). TypeScript geometry and image presentation are framework-independent. APIs are experimental during extraction. Android placement requires API 24+, and composited snapshots require API 26+.
+The native libraries support iOS (`UIKit` / `WKWebView`) and Android (`View` / `WebView`). TypeScript geometry and image presentation are framework-independent. APIs are experimental during extraction. Android placement requires API 23+, and composited snapshots require API 26+.
 
 ## Ownership
 
@@ -17,6 +17,24 @@ The native libraries support iOS (`UIKit` / `WKWebView`) and Android (`View` / `
 | Image invalidation, token cleanup and observer teardown             | Owning business actions and the interactive Web fallback             |
 
 A DOM slot does not necessarily contain a Web replacement: a UI plugin can restore a button, while an ad plugin may hide its slot. Image handoff is explicit and noninteractive. The engine never forwards clicks through an image or replaces SDK click/impression handling.
+
+## Projection contract
+
+A notification specifies **where the surface belongs**, not how to capture it. The Engine chooses the platform-specific handoff without requiring the plugin to keep another copy of projection state.
+
+| Intended destination | Required behavior                                                                                                                      |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `native`             | Show the interactive native view at confirmed geometry. During motion, use supported native tracking or a prepared image.              |
+| `web`                | Keep native content below the covering Web layer by removing its native projection; use a prepared image or the plugin's Web fallback. |
+| `none`               | Retire native content, projected images and fallback content. Later update/capture callbacks must not show it again.                   |
+
+Overlay coverage can temporarily turn `native` into `web`; it never overrides `none`. A capture failure does not change the intended destination. `failedFallback: native` is only valid for consumers that maintain native placement themselves, and never overrides explicit `web`, `none`, or overlay coverage.
+
+The Engine owns image readiness and restoration acknowledgement. It must not hide native pixels before replacement pixels are ready, nor retire replacement pixels before native restoration succeeds. Position-only motion reuses prepared content; appearance, size and renderer identity changes invalidate it. A missing image uses the declared fallback immediately rather than waiting to capture during a transition.
+
+Registration and notification forwarding retain the latest intent across startup and reconnection; they do not replay business events. Destruction retires the registration and its cached images. Notifications are intent, not completion promises: an API that promises completed hiding must await the explicit retirement acknowledgement described below.
+
+An existing renderer that checks CSS visibility can call `getUnprojectedVisibility(element)` from the npm package. It reads current authored/inherited visibility without the Engine's hiding rules, and restores projection ownership before returning. Do not inspect or mutate Engine marker attributes in a consuming plugin. This helper performs a style read and can trigger attribute observers; it does not eliminate measurement or transport costs.
 
 ## Register from the native plugin
 
@@ -83,6 +101,11 @@ Use the existing **`jsName`**, not `identifier`: Capacitor uses `jsName` for JS 
          }
      }
 +
++    public override func notifyListeners(_ eventName: String, data: [String: Any]?, retainUntilConsumed: Bool) {
++        projection?.receive(eventName, data: data)
++        super.notifyListeners(eventName, data: data, retainUntilConsumed: retainUntilConsumed)
++    }
++
 +    deinit {
 +        projection?.destroy()
 +    }
@@ -114,6 +137,7 @@ Make the corresponding changes in `android/src/main/java/<your-package>/ExampleP
 +    private var projection: NativeUIProjection? = null
 
      override fun load() {
++        NativeUIProjection.install(bridge.webView)
          // Existing code creates and attaches nativeView here.
 +        projection = runCatching {
 +            NativeUIProjection(
@@ -145,6 +169,11 @@ Make the corresponding changes in `android/src/main/java/<your-package>/ExampleP
          }
      }
 +
++    override fun notifyListeners(eventName: String, data: JSObject, retainUntilConsumed: Boolean) {
++        projection?.receive(eventName, data)
++        super.notifyListeners(eventName, data, retainUntilConsumed)
++    }
++
 +    override fun handleOnDestroy() {
 +        projection?.close()
 +        projection = null
@@ -153,9 +182,29 @@ Make the corresponding changes in `android/src/main/java/<your-package>/ExampleP
  }
 ```
 
-Both diffs add a private property, native registration, an update notification and teardown. They add no Engine methods to `pluginMethods`, no public JS wrapper, and no application-side Engine initializer.
+On Android, call `NativeUIProjection.install(bridge.webView)` in plugin `load()`,
+before the first navigation, even when SDK views arrive later. Registrations then
+share that main-frame, origin-restricted channel; they do not install new message
+listeners into a loaded WebView. This avoids a WebView native crash reproduced when
+registering an asynchronously loaded AdMob view. The registration constructor can
+install the channel only on an un-navigated WebView; late installation fails with
+an actionable error instead of attempting unsafe injection. All registrations on
+the same WebView must use the same allowed origins. Closing a registration removes
+only its owner from the channel, so other slots continue working. The shared channel
+remains installed for the WebView lifetime; registrations must still be retained
+and closed by their consuming plugin.
+
+Both diffs add a private property, native registration, a notification override, an update notification and teardown. They add no Engine methods to `pluginMethods`, no public JS wrapper, and no application-side Engine initializer.
 
 Keep your plugin's existing `registerPlugin()` export. Use the same event names in the registration and `notifyListeners`; if the plugin already emits a suitable event (such as `tabSelected`), list that event instead of emitting it twice.
+
+### Notifications during startup
+
+The notification override above lets the Engine retain the latest matching projection destination before the Web runtime subscribes. No separate state variable or initial-state callback is needed. Forward every notification to `super` as usual: the Engine records state without replaying notifications, updates, or user actions. Without a destination notification, it infers the initial destination from native view visibility. Registration must exist before the notifications it should observe.
+
+If your plugin owns multiple registrations, pass the notification to each registration; `receiveListeners.match` selects the owning surface. Appearance updates do not change the destination. The renderer still owns native placement and visibility before connection.
+
+With the default Web fallback, scrolling without a prepared image or native scroll binding keeps the Web fallback visible until the renderer confirms current native placement with its native-destination notification. An appearance update alone is not that confirmation. Consumers choosing native failure recovery must keep their own native geometry current.
 
 ### Which events to emit
 
@@ -179,6 +228,68 @@ The container does not have to exist at registration time. A missing DOM waits w
 A Web Component host can be the destination, for example `projectionSelector: 'native-ad[placement="home"]'`. Give the host a layout box (`display: block` with the intended dimensions); the engine observes insertion, removal and selector attribute changes. The selector runs in the document and does not search inside shadow roots. The fallback content, including shadow content, must inherit the host's `visibility`: do not override it with `visibility: visible`, and reserve the host's `::before` for the projection image. These requirements apply to open and closed shadow roots.
 
 For independently moving AdMob slots, retain one registration per loaded native view/surface, use a slot-specific selector and filter the plugin's notifications through `receiveListeners.match` (`match: ["slotKey": slotKey, "loadId": loadId]` / `match = mapOf("slotKey" to slotKey, "loadId" to loadId)`). Dispose the registration when a loaded ad is replaced, even if its host view is reused. Keep SDK loading, impression and click handling in the ad plugin. Supply `canCapture` with its existing capture eligibility checks (for example, test-ad / opaque-background / no-video restrictions); the engine does not grant permission to snapshot an SDK view.
+
+For SDK consumers without an equivalent Web fallback, set `failedFallback: .native`
+on iOS or `failedFallback = NativeUIProjection.FailedFallback.NATIVE` on Android.
+The default is `.web` / `WEB`, preserving existing consumers. If automatic motion
+cannot use a prepared image (not ready, unsupported capture, or rejected handoff),
+`native` preserves the live native view and keeps fallback DOM hidden. The consumer
+must continue positioning that view; this option does not create native scroll
+tracking on Android. Explicit `web`, `none`, and overlay coverage take precedence:
+this option never raises a native view above an intentionally covering Web layer.
+
+For opaque, software-renderable Android SDK views, use
+`captureMode = NativeUIProjection.CaptureMode.VIEW` together with an explicit
+`failedFallback` policy (`WEB` unless the consumer maintains native placement). This draws only the View's
+pixels with no surrounding padding, so clipping a partially visible ad cannot bake
+in a toolbar or adjacent content. Video, SurfaceView, translucent views, and content
+requiring Window composition must keep the default `COMPOSITED` mode. The consumer
+must provide a matching, clipped DOM host for the full opaque View; arbitrary native
+outline masks, transforms, and custom clipping are not reproduced.
+
+VIEW pixels are cached by native View identity, dimensions, and content revision.
+Ordinary scrolling retains the decoded Web image and updates placement without
+capture, PNG encoding, or image decode. The image covers the host border box at
+local origin (0, 0), independently of native placement acknowledgment latency.
+Opaque images remain painted beneath the live native View between scrolls.
+Before hiding that View, the engine waits for WebView visual readiness and a draw;
+VIEW creates no native entry or return image copies. Return acknowledgment waits
+across the native draw and the following animation frame. A generation check prevents
+a delayed cover callback from hiding content after restoration or suspension.
+
+The native Bitmap is recycled after PNG encoding in VIEW mode; the PNG and decoded
+Web image remain cached. Plugin update notifications advance the content revision:
+notify an update whenever content changes without replacing the View. Replacing the
+registration, WebView navigation, reset, or close retires the cache. Encoding stays
+off the UI thread; View drawing and cache ownership stay on it, with the existing
+8-million-pixel cap.
+
+COMPOSITED retains native handoff copies for translucent content. Entry copies wait
+for WebView visual readiness and a draw before retirement. If the 500 ms entry
+deadline expires, the native View is restored before the copy is removed, and a late
+paint acknowledgment is rejected.
+
+Android VIEW consumers can read `isProjecting` on the UI thread after a successful
+cover to defer same-size native placement work. Keep only the latest accepted placement;
+continue validating sequence/generation, and process hide, resize and teardown immediately.
+Supply `beforeNativeReveal` to apply that pending placement synchronously before normal
+restoration, failure recovery, or active-image release reveals native pixels. The engine
+clears `isProjecting` before invoking the callback, so applying placement must not defer
+again. The callback may run without pending work and must be idempotent. Clear consumer
+pending work on hide/destroy and validate the loaded View identity before applying it.
+The callback does not replace content/size invalidation or JavaScript geometry tracking.
+
+On Android, consumers whose asynchronous hide method promises that all pixels have
+disappeared must call `projection.hide { completed -> ... }` and resolve only when
+`completed` is true. Native handoff copies disappear immediately; completion waits
+for synchronous Web-proxy retirement. A timeout reports failure, not success.
+Call `projection.show()` when presenting again, in addition to normal plugin events;
+this also preserves presentation intent if event subscription is still starting.
+
+Scroll observation follows composed-tree ancestors, including assigned slots.
+Non-composed scroll events inside an Ionic shadow tree are observed at their source;
+applications do not add an extra listener or dispatch synthetic document events.
+Listeners follow host reparenting and slot reassignment and are removed on teardown.
 
 Scrolling is internal: iOS uses a uniquely matched native scroll binding when available; otherwise, including Android, scrolling temporarily uses the prepared image and restores native content after motion settles. Automatic scroll handling never overrides explicit `web` or `none`. Unsupported capture or geometry keeps the normal DOM fallback; it does not wait for a new capture on the transition path. The latest explicit destination survives WebView reload, and old-document replies cannot complete a new document's requests.
 
@@ -232,12 +343,12 @@ The npm archive contains TypeScript declarations, ESM, Swift sources and a podsp
 The primary native distribution is Swift Package Manager. Depend on the repository-root library from your plugin:
 
 ```swift
-.package(url: "https://github.com/rdlabo-dev/ionic-theme-ios27.git", revision: "0178998db75cd906ed8cdb91868a6fc2a4fe8c72")
+.package(url: "https://github.com/rdlabo-dev/ionic-theme-ios27.git", revision: "<matching-engine-tag-or-commit>")
 // In the plugin target's dependencies:
 .product(name: "CapacitorNativeUIEngine", package: "ionic-theme-ios27")
 ```
 
-The revision above contains the initial 2.x Engine. Earlier tags, including `ios27-v2.0.3`, predate the Engine and cannot resolve this library. Once an Engine-containing release tag is available, pin that tag to match the npm/Maven version instead.
+Replace the placeholder with the Engine-containing release tag matching the npm/Maven version. For unreleased source integrations, pin the full commit of the tested Engine checkout and use its matching sources on all platforms; APIs documented on the development branch may not exist in an older release. Earlier tags, including `ios27-v2.0.3`, predate the Engine and cannot resolve this library. Do not copy an old extraction commit as a permanent version recommendation.
 
 `import CapacitorNativeUIEngine` requires neither Capacitor registration nor an npm install of Swift sources. The npm companion supplies DOM measurement and Web image handoff; it is not the native dependency resolver. The current monorepo uses `ios27-v…` release tags, so pin a Git revision/tag rather than assuming unprefixed SwiftPM semantic version tags exist.
 
@@ -431,7 +542,7 @@ Android uses a Gradle Android library, distributed as an AAR through Maven rathe
 packages/capacitor-native-ui-engine/android/gradlew -p packages/capacitor-native-ui-engine/android testDebugUnitTest assembleRelease connectedDebugAndroidTest publishReleasePublicationToVerificationRepository
 ```
 
-`NativeUIClippedView` is a low-level helper that applies caller-supplied position and clipping without resetting unchanged dimensions. `NativeUIProjection` manages image handoff and restoration; it does not use this helper to lay out the renderer. The consuming plugin owns normal native placement and size updates. Android does not claim WKWebView-style native overflow binding.
+`NativeUIClippedView` is a low-level helper that applies caller-supplied position and clipping without resetting unchanged dimensions. `NativeUIProjection` manages image handoff and restoration; it does not use this helper to lay out the renderer. The consuming plugin owns normal native placement and size updates. Android does not claim WKWebView-style native overflow binding. High-level registrations share a non-consuming window touch observer: down cancels in-flight capture adoption, up/cancel/focus loss permits preparation again, and teardown removes only that registration. Existing callback dispatch and return values are preserved.
 
 `NativeUISnapshots` prepares composited PixelCopy images and local PNG files, then covers/restores from that cache. Encoding runs off the UI thread; only one preparation runs per owner. Notify it of visual changes and interaction, and release tokens on teardown. All view/lifecycle calls run on the UI thread. The plugin retains revision, eligibility and fallback policy.
 
@@ -462,3 +573,31 @@ For local packaging verification, run `python3 scripts/native-ui-engine-release/
 This engine uses the [Zlib license](LICENSE): commercial use, modification and redistribution are permitted. Do not misrepresent the origin or claim authorship of the original software; identify altered source versions and retain the notice in source distributions. Forking, renaming or removing Git history is not itself prohibited by this license.
 
 [NOTICE](NOTICE) preserves the upstream MIT notice for code adapted from ionic-theme-ios27 / capacitor-native-ui. Previously granted MIT permissions remain applicable to those versions and portions. The theme and Native UI plugin remain MIT; the engine's Zlib license does not change their licenses or the licenses of applications that depend on it. The npm archive and Android artifacts include the engine notices; SwiftPM users obtain them in this repository alongside the engine sources.
+
+### Final placement when returning from an opaque image (Android)
+
+A plugin that normally measures and posts native placement on every scroll can opt
+into a final placement handoff. Pass `updatePlacement: (JSONObject) -> Unit` to its
+Android `NativeUIProjection` registration and bind its Web host with
+`bindProjectionPlacement(element, measure, invalidate)`.
+
+- `binding.projected` becomes true only after native confirms the image handoff.
+  While true, the plugin can reuse that host's last placement in full placement
+  batches and skip measuring it. Other hosts continue their ordinary updates.
+- `measure()` returns a JSON object synchronously. The engine includes it in the
+  existing restore request (or an active-image recovery request). Native validates
+  the active image token and View identity, calls `updatePlacement`, then reveals
+  native and acknowledges its draw. No extra bridge round trip is introduced.
+- The plugin must validate its own identity, generation and per-host sequence in
+  `updatePlacement`. Throw to reject a stale or invalid placement. A final update
+  for one host must not cause updates for another host to be dropped.
+- `invalidate()` is called after a failed handoff request. Clear optimistic
+  placement/deduplication caches and schedule ordinary placement reconciliation.
+- Dispose the binding when detaching a host. Session ownership prevents an old
+  registration's delayed acknowledgement from clearing a new registration's
+  projection state. Pause, author visibility and layout changes must still use
+  the plugin's normal visibility/invalidation paths.
+
+This opt-in does not change registrations without `updatePlacement`. Android rejects
+`updatePlacement` unless `captureMode = CaptureMode.VIEW`; live video and other ineligible captures
+continue native placement tracking under `failedFallback = NATIVE`.

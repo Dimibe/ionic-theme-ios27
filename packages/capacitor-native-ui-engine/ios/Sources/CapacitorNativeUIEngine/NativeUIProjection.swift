@@ -4,6 +4,8 @@ import WebKit
 /// One fixed DOM fallback and its native view. The plugin retains this registration.
 /// Existing notifyListeners events drive projection; no public plugin method is intercepted.
 public final class NativeUIProjection: NSObject, WKScriptMessageHandler {
+    public enum FailedFallback: String { case web, native }
+
     public struct ReceiveListeners {
         public struct Projection {
             public let native: [String]
@@ -31,6 +33,13 @@ public final class NativeUIProjection: NSObject, WKScriptMessageHandler {
     private let id = "nativeUI" + UUID().uuidString.replacingOccurrences(of: "-", with: "")
     private let origins: Set<String>
     private let canCapture: () -> Bool
+    private let receiveListeners: ReceiveListeners
+    private let notificationLock = NSLock()
+    private var notificationDestination: String?
+    private var recordedDestination: String? {
+        notificationLock.lock(); defer { notificationLock.unlock() }
+        return notificationDestination
+    }
     private var script: WKUserScript?
     private var documentID: String?
     private var destination = "native"
@@ -46,24 +55,27 @@ public final class NativeUIProjection: NSObject, WKScriptMessageHandler {
     public convenience init(webView: WKWebView?, plugin: String, projectionSelector: String,
                 receiveListeners: ReceiveListeners = .init(),
                 allowedOrigins: Set<String> = ["capacitor://localhost", "https://localhost", "http://localhost"],
+                failedFallback: FailedFallback = .web,
                 canCapture: @escaping () -> Bool = { true }, view: @escaping () -> UIView?) throws {
         try self.init(webView: webView, plugin: plugin, projectionSelector: projectionSelector,
-                      receiveListeners: receiveListeners, allowedOrigins: allowedOrigins,
+                      receiveListeners: receiveListeners, allowedOrigins: allowedOrigins, failedFallback: failedFallback,
                       canCapture: canCapture, snapshots: NativeUICoveredSnapshots(), view: view)
     }
     init(webView: WKWebView?, plugin: String, projectionSelector: String,
          receiveListeners: ReceiveListeners = .init(),
          allowedOrigins: Set<String> = ["capacitor://localhost", "https://localhost", "http://localhost"],
+         failedFallback: FailedFallback = .web,
          canCapture: @escaping () -> Bool = { true }, snapshots: NativeUICoveredSnapshots,
          view: @escaping () -> UIView?) throws {
         self.snapshots = snapshots
+        self.receiveListeners = receiveListeners
         guard let webView else { throw ProjectionError.missingWebView }
         self.webView = webView; self.views = { view().map { ["view": $0] } ?? [:] }; self.origins = allowedOrigins; self.canCapture = canCapture
         super.init()
         precondition(Thread.isMainThread)
         guard !projectionSelector.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ProjectionError.invalidConfiguration }
         let config: [String: Any] = ["id": id, "plugin": plugin, "projectionSelector": projectionSelector,
-                                     "receiveListeners": receiveListeners.configuration]
+                                     "receiveListeners": receiveListeners.configuration, "failedFallback": failedFallback.rawValue]
         let json = String(data: try JSONSerialization.data(withJSONObject: config), encoding: .utf8)!
         let allowed = String(data: try JSONSerialization.data(withJSONObject: Array(allowedOrigins)), encoding: .utf8)!
         let runtime = try Self.runtime()
@@ -73,6 +85,23 @@ public final class NativeUIProjection: NSObject, WKScriptMessageHandler {
         webView.configuration.userContentController.add(WeakProjectionHandler(self), name: id)
         webView.configuration.userContentController.addUserScript(script)
         webView.evaluateJavaScript(source, completionHandler: nil)
+    }
+    /// Observe the plugin's existing notification before forwarding it to Capacitor.
+    /// Only destination state is retained; this never replays or emits an event.
+    public func receive(_ eventName: String, data: [String: Any]? = nil) {
+        guard receiveListeners.match.allSatisfy({ key, expected in
+            guard let actual = data?[key] else { return false }
+            if let a = actual as? NSNumber, let b = expected as? NSNumber {
+                return CFGetTypeID(a) == CFGetTypeID(b) && a == b
+            }
+            return (actual as? String).map { $0 == expected as? String } ?? false
+        }) else { return }
+        let routes = receiveListeners.projection
+        let matches = [("native", routes.native), ("web", routes.web), ("none", routes.none)]
+            .filter { $0.1.contains(eventName) }
+        guard matches.count == 1 else { return }
+        notificationLock.lock(); defer { notificationLock.unlock() }
+        notificationDestination = matches[0].0
     }
     private enum ProjectionError: Error { case missingWebView, invalidConfiguration, missingRuntime }
     private static func runtime() throws -> String {
@@ -103,8 +132,8 @@ public final class NativeUIProjection: NSObject, WKScriptMessageHandler {
         let token = request["token"] as? String ?? ""
         switch request["action"] as? String {
         case "connect":
-            if !connected { destination = views().values.contains(where: { !$0.isHidden }) ? "native" : "none"; connected = true }
-            complete(["destination": destination])
+            if !connected { destination = (views().values.contains(where: { !$0.isHidden }) ? "native" : "none"); connected = true }
+            complete(["destination": recordedDestination ?? destination])
         case "destination":
             if let next = request["destination"] as? String, ["native", "web", "none"].contains(next) { destination = next; connected = true }
             complete([:])

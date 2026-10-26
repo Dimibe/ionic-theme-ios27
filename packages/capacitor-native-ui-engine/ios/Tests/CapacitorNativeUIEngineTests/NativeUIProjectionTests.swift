@@ -9,6 +9,16 @@ final class NativeUIProjectionTests: XCTestCase {
         ))
     }
 
+    @MainActor func testConvenienceInitializerForwardsNativeFailurePolicy() throws {
+        let web = WKWebView()
+        let registration = try NativeUIProjection(webView: web, plugin: "Fixture", projectionSelector: "#slot",
+            failedFallback: .native, canCapture: { false }, view: { nil })
+        defer { registration.destroy() }
+        XCTAssertTrue(web.configuration.userContentController.userScripts.contains {
+            $0.source.contains("\"failedFallback\":\"native\"")
+        })
+    }
+
     @MainActor func testNativeInitializationFallbackEventsReloadAndTeardown() async throws {
         let configuration = WKWebViewConfiguration()
         let content = ProjectionFixture()
@@ -102,6 +112,41 @@ final class NativeUIProjectionTests: XCTestCase {
             XCTAssertFalse(button.isHidden, "Prepared image handoff must restore the live view")
             XCTAssertEqual(button.frame, CGRect(x: 20, y: 100, width: 100, height: 40))
         }
+    }
+    @MainActor func testNotificationBeforeSubscriptionsPreservesLatestMatchingDestination() async throws {
+        let configuration = WKWebViewConfiguration()
+        configuration.setURLSchemeHandler(ProjectionFixture(), forURLScheme: "capacitor")
+        configuration.userContentController.addUserScript(WKUserScript(source: """
+          window.testEvents = {};
+          window.Capacitor = { addListener: (plugin, name, listener) => {
+            testEvents[name] = listener; return { remove: async () => { delete testEvents[name]; } };
+          } };
+        """, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        let window = UIWindow(frame: UIScreen.main.bounds)
+        let owner = UIViewController(); window.rootViewController = owner; window.makeKeyAndVisible()
+        let web = WKWebView(frame: window.bounds, configuration: configuration)
+        owner.view.addSubview(web)
+        let native = UIView(frame: CGRect(x: 20, y: 100, width: 100, height: 40)); owner.view.addSubview(native)
+        let registration = try NativeUIProjection(webView: web, plugin: "Fixture", projectionSelector: "#slot",
+            receiveListeners: .init(projection: .init(native: ["shown"], web: ["moving"], none: ["hidden"]), match: ["slot": "one"]), canCapture: { false }, view: { native })
+        defer { registration.destroy(); window.isHidden = true }
+        // A notification during startup has no subscriber yet; the current state remains authoritative.
+        registration.receive("hidden", data: ["slot": "one"])
+        registration.receive("moving", data: ["slot": "one"])
+        registration.receive("shown", data: ["slot": "other"])
+        web.load(URLRequest(url: URL(string: "capacitor://localhost/fixture")!))
+        try await wait(web, "typeof testEvents?.shown === 'function'", timeout: 30)
+        for _ in 0..<100 where !native.isHidden { try await Task.sleep(nanoseconds: 20_000_000) }
+        XCTAssertTrue(native.isHidden)
+        let webVisible = try await web.evaluateJavaScript("getComputedStyle(document.querySelector('#slot')).visibility === 'visible'") as? Bool
+        XCTAssertEqual(webVisible, true)
+        registration.receive("shown", data: ["slot": "one"])
+        _ = try await web.evaluateJavaScript("testEvents.shown({slot: 'one'})")
+        try await wait(web, "document.querySelector('#slot').getAttributeNames().some(n=>n.startsWith('data-native-ui-session-') && document.querySelector('#slot').getAttribute(n)==='native')")
+        XCTAssertFalse(native.isHidden)
+        web.reload()
+        try await wait(web, "document.querySelector('#slot')?.getAttributeNames().some(n=>n.startsWith('data-native-ui-session-') && document.querySelector('#slot').getAttribute(n)==='native') === true")
+        XCTAssertFalse(native.isHidden, "Reconnection must use the latest native notification")
     }
     @MainActor private func wait(_ web: WKWebView, _ expression: String, timeout: TimeInterval = 8) async throws {
         let deadline = Date().addingTimeInterval(timeout)
