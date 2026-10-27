@@ -1,5 +1,5 @@
-import { getOverlayCoordinator } from '@rdlabo/capacitor-native-ui-engine';
-import { enableSupportIonicOverlays } from '@rdlabo/capacitor-native-ui-engine/ionic';
+import { getOverlayCoordinator } from '@webview-native-ui/engine';
+import { enableSupportIonicOverlays } from '@webview-native-ui/engine/ionic';
 import type { NativeUIOptions, NativeUIPlugin } from '../definitions';
 import { bounded, boundedListener } from '../shared/bridge';
 import type { NativeUIConnection } from '../shared/connection';

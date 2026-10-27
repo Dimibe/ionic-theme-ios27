@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import ts from 'typescript';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, existsSync, mkdirSync, symlinkSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, rmSync, existsSync, mkdirSync, symlinkSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -13,14 +13,13 @@ const sourceFiles = [
   'demo/package-lock.json',
   'packages/theme-ios27/package.json',
   'packages/capacitor-native-ui/package.json',
-  'packages/capacitor-native-ui-engine/package.json',
 ];
 const originals = sourceFiles.map((file) => readFileSync(file, 'utf8'));
 try {
   const packed = Object.values(JSON.parse(
     execFileSync('npm', ['pack', '--workspaces', '--ignore-scripts', '--json', '--pack-destination', dir], { encoding: 'utf8' }),
   ));
-  assert.equal(packed.length, 3);
+  assert.equal(packed.length, 2);
   sourceFiles.forEach((file, index) => assert.equal(readFileSync(file, 'utf8'), originals[index], `${file} changed while packing`));
   const nativeName = '@rdlabo/capacitor-native-ui';
   const manifests = new Map();
@@ -93,16 +92,6 @@ try {
 
       assert(!manifest.dependencies?.['@rdlabo/ionic-theme-ios27'], 'Native UI must not depend on the theme');
       assert(!files.has('dist/native-integration/transition.js'), 'Ionic transition adapter belongs to the theme');
-    } else if (manifest.name === '@rdlabo/capacitor-native-ui-engine') {
-      assert.equal(manifest.capacitor, undefined, 'Engine is a library, never a registered plugin');
-      assert(!files.has('Package.swift'), 'Native SwiftPM dependencies resolve from Git, not npm');
-      assert(files.has('CapacitorNativeUIEngine.podspec'));
-      assert.equal(manifest.license, 'Zlib');
-      assert(files.has('NOTICE'));
-      assert.match(readFileSync(join(packageRoot, 'LICENSE'), 'utf8'), /origin of this software must not be misrepresented/);
-      assert.match(readFileSync(join(packageRoot, 'NOTICE'), 'utf8'), /MIT License/);
-      assert(files.has('ios/Sources/CapacitorNativeUIEngine/CoveredSnapshots.swift'));
-      assert.equal(Object.keys(manifest.dependencies ?? {}).length, 0, 'Engine must not depend on a renderer');
     } else {
       assert.equal(manifest.name, '@rdlabo/ionic-theme-ios27');
       assert.equal(manifest.capacitor, undefined, 'Only the native package registers a Capacitor plugin');
@@ -121,17 +110,18 @@ try {
       assert(existsSync(join(dir, 'consumer.css')));
     }
   }
-  assert.equal(manifests.get(nativeName).dependencies['@rdlabo/capacitor-native-ui-engine'], manifests.get('@rdlabo/capacitor-native-ui-engine').version);
+  assert.equal(manifests.get(nativeName).dependencies['@webview-native-ui/engine'], JSON.parse(readFileSync('node_modules/@webview-native-ui/engine/package.json', 'utf8')).version);
   assert.equal(manifests.get('@rdlabo/ionic-theme-ios27').dependencies[nativeName], manifests.get(nativeName).version);
   // Verify the core entry with neither Ionic nor the Ionic utilities installed.
   assert.equal(manifests.get(nativeName).peerDependenciesMeta['@ionic/core'].optional, true);
   assert(manifests.get(nativeName).dependencies['@rdlabo/ionic-theme-utils'], 'Native UI must install its own Ionic utilities');
   assert.equal(manifests.get(nativeName).peerDependencies['@rdlabo/ionic-theme-utils'], undefined);
+  cpSync(resolve('node_modules/@webview-native-ui/engine'), join(dir, 'node_modules/@webview-native-ui/engine'), { recursive: true });
   symlinkSync(resolve('node_modules/@capacitor'), join(dir, 'node_modules/@capacitor'), 'dir');
   execFileSync(process.execPath, ['--input-type=module', '-e', `
     import assert from 'node:assert/strict';
     import { enableNativeUI } from '@rdlabo/capacitor-native-ui/core';
-    import { enableSupportIonicOverlays } from '@rdlabo/capacitor-native-ui-engine/ionic';
+    import { enableSupportIonicOverlays } from '@webview-native-ui/engine/ionic';
     assert.equal(typeof enableNativeUI, 'function');
     assert.equal(typeof enableSupportIonicOverlays, 'function');
     assert.equal(enableSupportIonicOverlays(), undefined); // Safe without a Document (SSR).
@@ -141,8 +131,8 @@ try {
   const consumer = join(dir, 'consumer.ts');
   writeFileSync(consumer, `
     import { enableNativeUI } from '@rdlabo/capacitor-native-ui/core';
-    import { createWebProjection, createWebProjectionScope, type WebProjectionTransport } from '@rdlabo/capacitor-native-ui-engine';
-    import { enableSupportIonicOverlays } from '@rdlabo/capacitor-native-ui-engine/ionic';
+    import { createWebProjection, createWebProjectionScope, type WebProjectionTransport } from '@webview-native-ui/engine';
+    import { enableSupportIonicOverlays } from '@webview-native-ui/engine/ionic';
     enableSupportIonicOverlays();
     enableSupportIonicOverlays({ exclude: '[data-nonblocking-overlay]', covers: (overlay, target) => undefined });
     async function projectionContract(transport: WebProjectionTransport) {
@@ -249,7 +239,7 @@ try {
     withNativeUITransition(iosTransitionAnimation);
   `);
   execFileSync(process.execPath, [resolve('node_modules/typescript/bin/tsc'), '--noEmit', '--strict', '--skipLibCheck', '--module', 'esnext', '--moduleResolution', 'bundler', '--target', 'es2022', '--lib', 'es2022,dom', consumer], { cwd: dir, stdio: 'inherit' });
-  console.log('All three package archives, public exports, plugin ownership, dependency direction and standalone Sass verified.');
+  console.log('Both package archives, public exports, plugin ownership, dependency direction and standalone Sass verified.');
 } finally {
   rmSync(dir, { recursive: true, force: true });
 }

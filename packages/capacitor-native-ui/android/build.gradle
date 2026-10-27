@@ -68,8 +68,8 @@ repositories {
 }
 
 dependencies {
-    def engineVersion = new groovy.json.JsonSlurper().parse(file('../package.json')).dependencies['@rdlabo/capacitor-native-ui-engine']
-    implementation "io.github.rdlabo:native-ui-engine:$engineVersion"
+    def engineVersion = new groovy.json.JsonSlurper().parse(file('../package.json')).dependencies['@webview-native-ui/engine']
+    implementation "io.github.webview-native-ui:engine:$engineVersion"
     api platform("androidx.compose:compose-bom:2025.10.00")
     api "androidx.compose.ui:ui"
     api "androidx.compose.foundation:foundation"
@@ -84,13 +84,13 @@ dependencies {
 }
 
 if (project.hasProperty('nativeUIEngineIntegrationTest')) {
-    def engineSource = file('../../capacitor-native-ui-engine/src')
+    def engineSource = file('../../../node_modules/@webview-native-ui/engine/dist')
     def fixtureBundle = layout.buildDirectory.file('generated/engine-fixture-assets/public/native-ui-engine.js')
     def bundleFixture = tasks.register('bundleNativeUIEngineFixture', Exec) {
         inputs.dir engineSource
         outputs.file fixtureBundle
         commandLine file('../../../node_modules/.bin/esbuild').absolutePath,
-            new File(engineSource, 'index.ts').absolutePath, '--bundle', '--format=iife',
+            new File(engineSource, 'index.js').absolutePath, '--bundle', '--format=iife',
             '--global-name=NativeUIEngine', "--outfile=${fixtureBundle.get().asFile.absolutePath}"
     }
     tasks.matching { it.name == 'preDebugBuild' }.configureEach { dependsOn bundleFixture }

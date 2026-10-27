@@ -166,7 +166,7 @@ For a plugin-only app, use [navigation without the theme](#navigation-without-th
 For CocoaPods projects, first install the engine version required by your installed Native UI package:
 
 ```sh
-npm install --save-exact "@rdlabo/capacitor-native-ui-engine@$(node -p "require('./node_modules/@rdlabo/capacitor-native-ui/package.json').dependencies['@rdlabo/capacitor-native-ui-engine']")"
+npm install --save-exact "@webview-native-ui/engine@$(node -p "require('./node_modules/@rdlabo/capacitor-native-ui/package.json').dependencies['@webview-native-ui/engine']")"
 ```
 
 Add the engine to the existing app target in `ios/App/Podfile`, outside the generated `def capacitor_pods` block:
@@ -174,7 +174,7 @@ Add the engine to the existing app target in `ios/App/Podfile`, outside the gene
 ```ruby
 target 'App' do
   capacitor_pods
-  pod 'CapacitorNativeUIEngine', :path => '../../node_modules/@rdlabo/capacitor-native-ui-engine'
+  pod 'WebViewNativeUIEngine', :path => '../../node_modules/@webview-native-ui/engine'
   # Keep your other application pods here.
 end
 ```

@@ -3,7 +3,7 @@ import {
   createWebProjectionScope,
   type WebProjectionScope,
   type WebProjectionSource,
-} from '@rdlabo/capacitor-native-ui-engine';
+} from '@webview-native-ui/engine';
 import type { NativeUIPlugin } from '../definitions';
 import { getProjectionState } from './covered-source';
 

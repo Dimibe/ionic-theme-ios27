@@ -5,11 +5,15 @@ ENGINE_PODS_CAPACITOR=${1:?Provide the installed @capacitor/ios package director
 ENGINE_PODS_CAPACITOR=$(cd "$ENGINE_PODS_CAPACITOR" && pwd)
 ENGINE_PODS_TEMP=$(mktemp -d)
 trap 'rm -rf "$ENGINE_PODS_TEMP"' EXIT
-for package in capacitor-native-ui-engine capacitor-native-ui; do
+for package in capacitor-native-ui; do
   archive=$(npm pack "./packages/$package" --ignore-scripts --json --pack-destination "$ENGINE_PODS_TEMP" | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8"))[0].filename')
   mkdir -p "$ENGINE_PODS_TEMP/node_modules/@rdlabo/$package"
   tar -xzf "$ENGINE_PODS_TEMP/$archive" --strip-components=1 -C "$ENGINE_PODS_TEMP/node_modules/@rdlabo/$package"
 done
+engine_version=$(node -p "require('./packages/capacitor-native-ui/package.json').dependencies['@webview-native-ui/engine']")
+archive=$(npm pack "@webview-native-ui/engine@$engine_version" --ignore-scripts --json --pack-destination "$ENGINE_PODS_TEMP" | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8"))[0].filename')
+mkdir -p "$ENGINE_PODS_TEMP/node_modules/@webview-native-ui/engine"
+tar -xzf "$ENGINE_PODS_TEMP/$archive" --strip-components=1 -C "$ENGINE_PODS_TEMP/node_modules/@webview-native-ui/engine"
 mkdir -p "$ENGINE_PODS_TEMP/ios/App"
 cat > "$ENGINE_PODS_TEMP/ios/App/Podfile" <<RUBY
 platform :ios, '15.0'
@@ -22,8 +26,8 @@ def capacitor_pods
 end
 target 'App' do
   capacitor_pods
-  pod 'CapacitorNativeUIEngine', :path => '../../node_modules/@rdlabo/capacitor-native-ui-engine'
+  pod 'WebViewNativeUIEngine', :path => '../../node_modules/@webview-native-ui/engine'
 end
 RUBY
 pod install --project-directory="$ENGINE_PODS_TEMP/ios/App"
-xcodebuild -project "$ENGINE_PODS_TEMP/ios/App/Pods/Pods.xcodeproj" -scheme CapacitorNativeUIEngine -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+xcodebuild -project "$ENGINE_PODS_TEMP/ios/App/Pods/Pods.xcodeproj" -scheme RdlaboCapacitorNativeUi -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build

@@ -59,16 +59,16 @@ Use standard native buttons without Ionic through the [plain HTML adapter](https
 
 ## For plugin maintainers
 
-[`@rdlabo/capacitor-native-ui-engine`](packages/capacitor-native-ui-engine/README.md) provides DOM/native placement, scroll tracking and prepared-image handoff. It is a library dependency for plugin maintainers, not a Capacitor plugin for applications. Native libraries support iOS and Android.
+[`@webview-native-ui/engine`](https://github.com/webview-native-ui/engine) provides DOM/native placement, scroll tracking and prepared-image handoff. It is a library dependency for plugin maintainers, not a Capacitor plugin for applications. Native libraries support iOS and Android.
 
 ## Licenses
 
-The theme and `@rdlabo/capacitor-native-ui` remain MIT. Only [`@rdlabo/capacitor-native-ui-engine`](packages/capacitor-native-ui-engine/LICENSE) uses Zlib; its [NOTICE](packages/capacitor-native-ui-engine/NOTICE) retains the upstream MIT notice for adapted portions. The repository-root MIT license does not replace the engine's package-specific license.
+The theme and `@rdlabo/capacitor-native-ui` use the MIT license. The independent [Engine repository](https://github.com/webview-native-ui/engine) owns its licensing and notices.
 
 ## Maintenance
 
-The Engine, Native UI and theme use a shared release version. Before running `npm run release`, prepare the workspace versions, inter-package dependencies and lockfiles on `main`, and publish the matching Engine Maven artifact after that commit passes Engine CI. This applies to prereleases too: each npm version needs the matching Maven artifact.
+Native UI and the theme share a release version. Engine is maintained and released independently at [webview-native-ui/engine](https://github.com/webview-native-ui/engine). Its npm, SwiftPM and Maven versions must stay aligned when updating the pinned dependency.
 
-Then release from a clean, up-to-date `main` with `npm run release`, selecting the same target version. Keep the root version at the previous release until this command bumps it and creates the `ios27-v…` tag. The tag workflow verifies Maven availability and publishes npm packages in order: Engine, Native UI, theme. Prereleases use the npm `next` dist-tag. See the [Engine publication instructions](packages/capacitor-native-ui-engine/README.md#maven-publication) and [workflows](.github/workflows).
+Release from a clean, up-to-date `main` with `npm run release`. The command bumps the root version and creates the `ios27-v…` tag. The tag workflow updates the two workspace versions, verifies the pinned Engine Maven artifact, and publishes Native UI followed by the theme. Prereleases use the npm `next` dist-tag. See the [workflows](.github/workflows).
 
 A partially published versioned release requires a new shared version: npm versions cannot be overwritten, and this release workflow does not resume partial publication.

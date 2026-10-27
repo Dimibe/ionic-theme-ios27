@@ -1,2 +1,2 @@
-import CapacitorNativeUIEngine
-typealias NativeUIScrollPlacement = CapacitorNativeUIEngine.NativeUIScrollPlacement
+import WebViewNativeUIEngine
+typealias NativeUIScrollPlacement = WebViewNativeUIEngine.NativeUIScrollPlacement

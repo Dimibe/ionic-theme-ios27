@@ -1,7 +1,7 @@
 import type { CoveredSnapshots } from '../shared/covered-snapshot';
 
-export { usesOverlayBackdrop as usesCoveredBackground } from '@rdlabo/capacitor-native-ui-engine';
-import { usesOverlayBackdrop as usesCoveredBackground } from '@rdlabo/capacitor-native-ui-engine';
+export { usesOverlayBackdrop as usesCoveredBackground } from '@webview-native-ui/engine';
+import { usesOverlayBackdrop as usesCoveredBackground } from '@webview-native-ui/engine';
 
 /** The prepared image is optional; Ionic presentation never waits for it. */
 export const coverOverlayBackground = (element: HTMLElement, snapshots: CoveredSnapshots) => {

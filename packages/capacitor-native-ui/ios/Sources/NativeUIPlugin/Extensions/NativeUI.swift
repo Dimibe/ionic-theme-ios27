@@ -1,4 +1,4 @@
-import CapacitorNativeUIEngine
+import WebViewNativeUIEngine
 import SwiftUI
 import UIKit
 

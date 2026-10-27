@@ -1,4 +1,4 @@
-import { enableSupportIonicOverlays, ionicModalStack } from '@rdlabo/capacitor-native-ui-engine/ionic';
+import { enableSupportIonicOverlays, ionicModalStack } from '@webview-native-ui/engine/ionic';
 import type { Frame } from '../definitions';
 import { readModalAnimation, type ModalAnimation } from './modal-animation';
 

@@ -1,1 +1,1 @@
-export { projectionAncestors, fitsClip } from '@rdlabo/capacitor-native-ui-engine';
+export { projectionAncestors, fitsClip } from '@webview-native-ui/engine';

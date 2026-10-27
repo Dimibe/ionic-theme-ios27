@@ -1,4 +1,4 @@
-import type { WebProjectionTransport } from '@rdlabo/capacitor-native-ui-engine';
+import type { WebProjectionTransport } from '@webview-native-ui/engine';
 import type { NativeUIExtension } from './extensions';
 import type { PluginListenerHandle } from '@capacitor/core';
 

@@ -8,12 +8,15 @@ import { createCandidate } from '../../packages/capacitor-native-ui/src/native/s
 let managers: Awaited<ReturnType<typeof createCoveredSnapshots>>[];
 beforeEach(() => {
   managers = [];
+  // Engine uses the host resource handler without bootstrapping Capacitor.
+  vi.stubGlobal('Capacitor', { convertFileSrc: (url: string) => url });
   vi.useFakeTimers();
   Object.defineProperty(HTMLImageElement.prototype, 'decode', { configurable: true, value: vi.fn().mockResolvedValue(undefined) });
 });
 afterEach(async () => {
   for (const manager of managers) await manager.destroy();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   vi.useRealTimers();
   document.body.replaceChildren();
 });
