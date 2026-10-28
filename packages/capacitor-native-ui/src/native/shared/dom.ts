@@ -1,3 +1,5 @@
+import { getUnprojectedVisibility } from '@webview-native-ui/engine';
+
 import { fadeMarker } from './crossfade';
 import { modalUsesVerticalBars } from './modal';
 
@@ -11,7 +13,9 @@ const childNodesGet = typeof Node === 'undefined' ? undefined : Object.getOwnPro
 export const childNodesOf = (element: Element): Node[] =>
   childNodesGet ? Array.from(childNodesGet.call(element)) : Array.from(element.childNodes);
 export const childElements = (element: Element): HTMLElement[] =>
-  childNodesOf(element).filter((node) => node.nodeType === 1) as HTMLElement[];
+  childNodesOf(element).filter(
+    (node) => node.nodeType === 1 && !(node as Element).hasAttribute('data-native-ui-projection-node'),
+  ) as HTMLElement[];
 export const prehiddenClass = 'native-ui-prehidden';
 export const prehideRootClass = 'native-ui-prehide';
 export const rejectedClass = 'native-ui-rejected';
@@ -257,7 +261,7 @@ const readVisible = (element: HTMLElement, allowOutsideViewport: boolean): boole
     const style = getComputedStyle(current);
     if (
       style.display === 'none' ||
-      style.visibility !== 'visible' ||
+      (style.visibility !== 'visible' && getUnprojectedVisibility(current) !== 'visible') ||
       (Number(style.opacity) === 0 && !current.hasAttribute(fadeMarker) && current !== enteringPage)
     )
       return false;
