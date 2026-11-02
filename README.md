@@ -1,6 +1,6 @@
 # Ionic Theme and Capacitor Native UI
 
-Install from npm; see [Native UI installation](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/readme#install-from-npm) or [theme setup](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/setup). For 1.x, use the [v1.2.1 guide](https://github.com/rdlabo-dev/ionic-theme-ios27/tree/ios27-v1.2.1).
+Install from npm; see [Native UI installation](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/readme#install-from-npm) or [theme setup](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/setup). For 1.x, use the [v1.2.1 guide](https://github.com/webview-native-ui/ionic-theme-ios27/tree/ios27-v1.2.1).
 Bring the iOS look to your Ionic app, or add native controls to your Capacitor app while keeping Web content, routing, and application state.
 
 **[Try the Ionic 9 demo](https://ionic-theme-ios27.rdlabo.dev/)**

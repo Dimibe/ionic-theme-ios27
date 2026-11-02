@@ -38,7 +38,7 @@ let html = await marked.parse(markdownWithCodePlaceholders, {
   gfm: true,
   walkTokens(token) {
     if (token.type === 'link' && !/^(?:[a-z]+:|#|\/\/)/i.test(token.href)) {
-      token.href = new URL(token.href, 'https://github.com/rdlabo-dev/ionic-theme-ios27/blob/main/packages/theme-ios27/docs/').href;
+      token.href = new URL(token.href, 'https://github.com/webview-native-ui/ionic-theme-ios27/blob/main/packages/theme-ios27/docs/').href;
     }
   },
 });

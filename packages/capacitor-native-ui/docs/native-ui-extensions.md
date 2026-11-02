@@ -412,8 +412,8 @@ Element placement requires the source to fit fully inside the viewport and its a
 
 The bridge acknowledgement is a Capacitor Promise method.
 
-The [demo reader](https://github.com/rdlabo-dev/ionic-theme-ios27/blob/main/demo/src/native-ui/counter.ts) and [demo SwiftUI View](https://github.com/rdlabo-dev/ionic-theme-ios27/blob/main/demo/ios/App/App/NativeUICounter.swift) show both placements using app-local files. Open the Native UI demo page to compare native projection with its Web fallback.
+The [demo reader](https://github.com/webview-native-ui/ionic-theme-ios27/blob/main/demo/src/native-ui/counter.ts) and [demo SwiftUI View](https://github.com/webview-native-ui/ionic-theme-ios27/blob/main/demo/ios/App/App/NativeUICounter.swift) show both placements using app-local files. Open the Native UI demo page to compare native projection with its Web fallback.
 
 ## Example: mini-player
 
-The demo mini-player shows the same pattern with track metadata and playback actions: a [DOM reader and Web fallback](https://github.com/rdlabo-dev/ionic-theme-ios27/blob/main/demo/src/native-ui/mini-player.ts) paired with an [app-local SwiftUI View](https://github.com/rdlabo-dev/ionic-theme-ios27/blob/main/demo/ios/App/App/NativeMiniPlayer.swift). The Web app owns playback state and modal presentation; native `open` and `toggle` actions activate its original buttons. This is a UI example, not an audio engine. Adapt the files after completing the extension setup above.
+The demo mini-player shows the same pattern with track metadata and playback actions: a [DOM reader and Web fallback](https://github.com/webview-native-ui/ionic-theme-ios27/blob/main/demo/src/native-ui/mini-player.ts) paired with an [app-local SwiftUI View](https://github.com/webview-native-ui/ionic-theme-ios27/blob/main/demo/ios/App/App/NativeMiniPlayer.swift). The Web app owns playback state and modal presentation; native `open` and `toggle` actions activate its original buttons. This is a UI example, not an audio engine. Adapt the files after completing the extension setup above.

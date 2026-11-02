@@ -4,11 +4,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/rdlabo-dev/ionic-theme-ios27.git",
+    "url": "git+https://github.com/webview-native-ui/ionic-theme-ios27.git",
     "directory": "packages/capacitor-native-ui"
   },
   "bugs": {
-    "url": "https://github.com/rdlabo-dev/ionic-theme-ios27/issues"
+    "url": "https://github.com/webview-native-ui/ionic-theme-ios27/issues"
   },
   "type": "module",
   "name": "@rdlabo/capacitor-native-ui",

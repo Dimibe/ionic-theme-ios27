@@ -39,6 +39,6 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/rdlabo-dev/ionic-theme-ios27.git"
+    "url": "git+ssh://git@github.com/webview-native-ui/ionic-theme-ios27.git"
   }
 }
