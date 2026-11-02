@@ -47,7 +47,6 @@ if (args[0] === 'view') {
   process.exit(1);
 }
 `, { mode: 0o755 });
-  writeFileSync(join(directory, 'curl'), '#!/bin/sh\nprintf \'%s\\n\' "$*" >> "$MAVEN_LOG"\n[ "$MISSING_MAVEN" != true ]\n', { mode: 0o755 });
   const step = 'Validate and publish candidate';
   const source = workflow.split(`      - name: ${step}\n`)[1].match(/node --input-type=module <<'JS'\n([\s\S]*?)\n          JS/)[1];
   const result = spawnSync(process.execPath, ['--input-type=module', '-e', source], {
@@ -55,11 +54,11 @@ if (args[0] === 'view') {
     env: {
       ...process.env, PATH: `${directory}:${process.env.PATH}`, RUNNER_TEMP: directory,
       VERSION: version, EXPECTED_VERSION: version, EXPECTED_NAME: names.at(-1), DIST_TAG: 'beta',
-      MAVEN_LOG: join(directory, 'maven.log'), CALL_LOG: log, REGISTRY: join(directory, 'registry.json'), FAIL_THEME: String(failTheme),
+      CALL_LOG: log, REGISTRY: join(directory, 'registry.json'), FAIL_THEME: String(failTheme),
     },
   });
   const calls = existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').map(line => JSON.parse(line)) : [];
-  return { result, calls, published: calls.filter(call => call[0] === 'publish'), maven: existsSync(join(directory, 'maven.log')) ? readFileSync(join(directory, 'maven.log'), 'utf8') : '' };
+  return { result, calls, published: calls.filter(call => call[0] === 'publish') };
 }
 
 test(`beta: publishes only the theme with an independently versioned plugin`, t => {
