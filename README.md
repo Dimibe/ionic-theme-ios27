@@ -52,7 +52,7 @@ To verify an unpublished plugin archive against the real demo, run:
 npm run test:native-candidate -- /absolute/path/rdlabo-capacitor-native-ui-VERSION.tgz --e2e
 ```
 
-This creates an isolated temporary checkout and leaves your manifests and lockfiles unchanged. Add `--simulator=UDID` for native UI, search, and edge simulator suites. Diagnostics and the temporary demo are retained at the printed path. Plugin-only unit and native library tests live in the plugin repository. Its CI tests each candidate archive against this repository’s main branch.
+This creates an isolated temporary checkout and leaves your manifests and lockfiles unchanged. Add `--shard=1/2` alongside `--e2e` to run one Playwright shard; run every shard to cover the full suite. Each shard retains package checks, unit tests, and the production build. Add `--simulator=UDID` for native UI, search, and edge simulator suites. Diagnostics and the temporary demo are retained at the printed path. Plugin-only unit and native library tests live in the plugin repository. Its CI tests each candidate archive against this repository’s main branch.
 
 ## Maintenance
 

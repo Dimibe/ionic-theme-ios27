@@ -10,7 +10,14 @@ import { fileURLToPath } from 'node:url';
 // Exercise an unpublished plugin in an isolated copy of the real theme demo.
 // Preserve the caller's manifests, lockfiles, installed packages and native project.
 const archive = resolve(process.argv[2] ?? '');
-if (!process.argv[2] || !existsSync(archive)) throw new Error('Usage: npm run test:native-candidate -- /absolute/path/plugin.tgz [--e2e] [--simulator=UDID]');
+if (!process.argv[2] || !existsSync(archive)) throw new Error('Usage: npm run test:native-candidate -- /absolute/path/plugin.tgz [--e2e] [--shard=INDEX/TOTAL] [--simulator=UDID]');
+const shard = process.argv.find(arg => arg.startsWith('--shard='));
+if (shard) {
+  const match = /^--shard=([1-9]\d*)\/([1-9]\d*)$/.exec(shard);
+  if (!process.argv.includes('--e2e') || !match || Number(match[1]) > Number(match[2])) {
+    throw new Error('--shard requires --e2e and an INDEX/TOTAL with 1 <= INDEX <= TOTAL');
+  }
+}
 const manifest = JSON.parse(execFileSync('tar', ['-xOf', archive, 'package/package.json'], { encoding: 'utf8' }));
 if (manifest.name !== '@rdlabo/capacitor-native-ui') throw new Error('Expected a capacitor-native-ui package archive');
 const source = fileURLToPath(new URL('../', import.meta.url));
@@ -56,7 +63,7 @@ if (process.argv.includes('--e2e')) {
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
   const port = server.address().port;
   await new Promise(resolve => server.close(resolve));
-  execFileSync('npm', ['run', 'test:e2e'], { cwd: join(directory, 'demo'), stdio: 'inherit', env: { ...process.env, PLAYWRIGHT_PORT: String(port) } });
+  execFileSync('npm', ['run', 'test:e2e', ...(shard ? ['--', shard] : [])], { cwd: join(directory, 'demo'), stdio: 'inherit', env: { ...process.env, PLAYWRIGHT_PORT: String(port) } });
 }
 const simulator = process.argv.find(arg => arg.startsWith('--simulator='))?.split('=')[1];
 if (simulator) {
