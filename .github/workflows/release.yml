@@ -59,14 +59,14 @@ jobs:
       group: npm-ios27-release
       cancel-in-progress: false
     permissions:
-      contents: write
+      contents: read
       id-token: write
 
     steps:
       - name: Checkout release tag
         uses: actions/checkout@v5
         with:
-          fetch-depth: 0
+          persist-credentials: false
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
@@ -105,39 +105,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Update demo package lock
-        env:
-          VERSION: ${{ steps.tag_version.outputs.version }}
-        run: |
-          node --input-type=module <<'JS'
-          import { readFileSync, writeFileSync } from 'node:fs';
-          const lock = JSON.parse(readFileSync('demo/package-lock.json', 'utf8'));
-          lock.packages['node_modules/@rdlabo/ionic-theme-ios27'].version = process.env.VERSION;
-          writeFileSync('demo/package-lock.json', JSON.stringify(lock, null, 2) + '\n');
-          JS
-
       - name: Build package
         run: npm run build
-
-      - name: Commit demo package lock
-        env:
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          VERSION: ${{ steps.tag_version.outputs.version }}
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add demo/package-lock.json
-          if git diff --cached --quiet; then
-            echo "Demo package lock is already current."
-          else
-            git commit -m "chore: update demo package lock to $VERSION"
-          fi
-          git fetch origin "$DEFAULT_BRANCH"
-          if [ "$(git rev-parse 'HEAD^{tree}')" = "$(git rev-parse "origin/$DEFAULT_BRANCH^{tree}")" ]; then
-            echo "The default branch already contains the same release tree."
-          else
-            git push origin "HEAD:$DEFAULT_BRANCH"
-          fi
 
       - name: Publish packages
         env:
@@ -664,9 +633,7 @@ jobs:
             const authorization = process.env.SOURCE_KIND === 'comment'
               ? `CI passed and a repository owner or maintainer requested \`/beta\` for commit \`${shortSha}\``
               : `CI passed for the merge commit \`${shortSha}\``;
-            const install = [process.env.PACKAGE_NAME];
-            if (process.env.PACKAGE_NAME === '@rdlabo/ionic-theme-ios27') install.push('@rdlabo/capacitor-native-ui');
-            const installCommand = install.map(name => `${name}@${process.env.VERSION}`).join(' ');
+            const installCommand = `${process.env.PACKAGE_NAME}@${process.env.VERSION}`;
             const body = `${marker}\n### ${title}\n\n${authorization}. Install the immutable version with:\n\n\`\`\`sh\nnpm install ${installCommand}\n\`\`\``;
             await core.summary.addRaw(body).write();
             if (!issueNumber) {

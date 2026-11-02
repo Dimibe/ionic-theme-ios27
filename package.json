@@ -32,7 +32,8 @@
     "test:release": "node --test scripts/release.test.mjs",
     "release": "np --no-tests --no-publish --branch main",
     "test:native-candidate": "node scripts/test-native-candidate.mjs",
-    "prebuild:css": "rdlabo-copy-structured-list src/styles/utils/structured-list.scss"
+    "prebuild:css": "rdlabo-copy-structured-list src/styles/utils/structured-list.scss",
+    "prepublishOnly": "npm run build"
   },
   "repository": {
     "type": "git",
@@ -52,14 +53,14 @@
   },
   "homepage": "https://docs.rdlabo.dev/projects/ionic-theme-ios27",
   "dependencies": {
-    "@rdlabo/capacitor-native-ui": "2.1.0",
     "@rdlabo/ionic-theme-utils": "0.1.5",
     "@stencil/core": "^4.43.5",
     "ionicons": "^8.1.0"
   },
   "peerDependencies": {
     "@capacitor/core": ">=8.0.0 <9",
-    "@ionic/core": ">=8.8.1 <10"
+    "@ionic/core": ">=8.8.1 <10",
+    "@rdlabo/capacitor-native-ui": "^2.1.0"
   },
   "peerDependenciesMeta": {
     "@capacitor/core": {
@@ -78,6 +79,7 @@
     "tsdown": "^0.23.0",
     "typescript": "^5.9.3",
     "wrangler": "^4.125.0",
-    "esbuild": "0.28.1"
+    "esbuild": "0.28.1",
+    "@rdlabo/capacitor-native-ui": "2.1.0"
   }
 }

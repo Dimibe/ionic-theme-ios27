@@ -52,10 +52,10 @@ To verify an unpublished plugin archive against the real demo, run:
 npm run test:native-candidate -- /absolute/path/rdlabo-capacitor-native-ui-VERSION.tgz --e2e
 ```
 
-This creates an isolated temporary checkout and leaves your manifests and lockfiles unchanged. Add `--simulator=UDID` for native UI, search, and edge simulator suites. Diagnostics and the temporary demo are retained at the printed path. Plugin-only unit and native library tests live in the capacitor repository. The plugin repository also runs this demo against its candidate archive in CI, so merge this repository’s migration before enabling that workflow.
+This creates an isolated temporary checkout and leaves your manifests and lockfiles unchanged. Add `--simulator=UDID` for native UI, search, and edge simulator suites. Diagnostics and the temporary demo are retained at the printed path. Plugin-only unit and native library tests live in the plugin repository. Its CI tests each candidate archive against this repository’s main branch.
 
 ## Maintenance
 
 Release the root theme package with `npm run release` from a clean, up-to-date `main`. The `ios27-v…` tag workflow publishes only the theme, using `next` for prereleases and `latest` for stable releases.
 
-Theme and plugin versions are independent. A published npm version cannot be overwritten.
+Theme and plugin versions are independent. Native UI is a required peer dependency so the theme and application share one plugin instance. npm 7+ installs it automatically for theme-only apps; other package managers must install required peers. Apps using native controls must also declare the plugin directly for Capacitor discovery. A published npm version cannot be overwritten.

@@ -85,7 +85,7 @@ jobs:
           persist-credentials: false
 
       - name: Fix git safe directory
-        run: git config --system --add safe.directory $GITHUB_WORKSPACE
+        run: git config --system --add safe.directory "$GITHUB_WORKSPACE"
 
       - uses: actions/setup-node@v5
         with:

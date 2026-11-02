@@ -111,7 +111,8 @@ try {
   }
   assert(manifests.get(nativeName).dependencies['@webview-native-ui/engine'], 'Plugin must declare its Engine dependency');
   assert.match(JSON.parse(readFileSync('node_modules/@webview-native-ui/engine/package.json', 'utf8')).version, /^1\.\d+\.\d+$/, 'Installed Engine must satisfy the compatible 1.x range');
-  assert(manifests.get('@rdlabo/ionic-theme-ios27').dependencies[nativeName], 'Theme must declare its integration dependency');
+  assert(manifests.get('@rdlabo/ionic-theme-ios27').peerDependencies[nativeName], 'Theme must share the application plugin through a required peer');
+  assert.equal(manifests.get('@rdlabo/ionic-theme-ios27').dependencies[nativeName], undefined, 'Theme must not install a private plugin copy');
   // Verify the core entry with neither Ionic nor the Ionic utilities installed.
   assert.equal(manifests.get(nativeName).peerDependenciesMeta['@ionic/core'].optional, true);
   assert(manifests.get(nativeName).dependencies['@rdlabo/ionic-theme-utils'], 'Native UI must install its own Ionic utilities');

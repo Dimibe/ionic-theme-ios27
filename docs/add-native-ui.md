@@ -10,7 +10,7 @@ Read [how projection works](https://docs.rdlabo.dev/projects/capacitor-native-ui
 
 This guide assumes a Capacitor 8 application with an iOS project. Web-only theme users can continue without Capacitor; adding native iOS controls requires setting up that native project first. See [Native UI requirements](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/readme#requirements) for supported Ionic, iOS, and Xcode versions.
 
-Update the theme and Native UI together to keep their versions aligned, and install Foldable as a separate application dependency:
+The theme and Native UI are versioned independently. Install a Native UI version compatible with the theme’s declared peer dependency, and install Foldable as a separate application dependency:
 
 ```sh
 npm install @rdlabo/ionic-theme-ios27 @rdlabo/capacitor-native-ui @erkamyaman/capacitor-foldable
@@ -36,7 +36,7 @@ Installing the plugin or configuring theme animations does not activate native c
 
 ## 3. Sync and run on iOS
 
-Build your Web assets, then run:
+For CocoaPods projects, first complete the [Engine Podfile setup](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/setup#4-build-sync-and-run). SwiftPM resolves Engine automatically. Build your Web assets, then run:
 
 ```sh
 npx cap sync ios

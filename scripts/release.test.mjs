@@ -22,7 +22,7 @@ function runBetaRelease(t, { existing = {}, legacy = false, failTheme = false } 
   const registry = {};
   for (const name of names) {
     const manifest = { name, version };
-    if (name === theme) manifest.dependencies = { [native]: '2.1.0' };
+    if (name === theme) manifest.peerDependencies = { [native]: '^2.1.0' };
     writeFileSync(join(directory, 'package/package.json'), JSON.stringify(manifest));
     const archive = join(folder, `${name.replace('@', '').replace('/', '-')}-${version}.tgz`);
     execFileSync('tar', ['-czf', archive, '-C', directory, 'package']);
@@ -129,4 +129,24 @@ require('node:fs').appendFileSync(process.env.CALL_LOG, JSON.stringify(process.a
   });
   const published = existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').map(line => JSON.parse(line)) : [];
   return { result, published };
+}
+
+for (const name of [theme, '@rdlabo/ionic-theme-ios26']) {
+  test(`beta install instructions reference only the published package: ${name}`, async () => {
+    const source = workflow.split('      - name: Comment exact install command\n')[1].split('          script: |\n')[1];
+    const version = '2.1.1-beta.pr343.sha0123456789ab';
+    let body;
+    const core = {
+      summary: { addRaw(value) { body = value; return { write: async () => {} }; } },
+      notice() {},
+    };
+    // Run the actual GitHub-script body with a local environment and no GitHub writes.
+    const run = new (Object.getPrototypeOf(async function () {}).constructor)('context', 'core', 'process', source);
+    await run({ repo: { owner: 'example', repo: 'theme' } }, core, { env: {
+      PACKAGE_NAME: name, VERSION: version, HEAD_SHA: '0123456789abcdef', PR_NUMBER: '',
+      DIST_TAG: 'beta', SOURCE_KIND: 'merge',
+    } });
+    assert(body.includes(`npm install ${name}@${version}\n`));
+    assert(!body.includes(native), 'The independently released plugin must not inherit the theme beta version');
+  });
 }
