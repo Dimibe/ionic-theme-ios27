@@ -1,14 +1,14 @@
 import { expect, test } from '@playwright/test';
 import { buildSync } from 'esbuild';
-import type { NativeUIPlugin } from '../../packages/capacitor-native-ui/src/native/definitions';
-import type { createOverlayController } from '../../packages/capacitor-native-ui/src/native/overlays/controller';
-import type { enableNativeUI } from '../../packages/capacitor-native-ui/src/native';
-import type { createRuntime } from '../../packages/capacitor-native-ui/src/native/runtime';
+import type { NativeUIPlugin } from '../node_modules/@rdlabo/capacitor-native-ui/src/native/definitions';
+import type { createOverlayController } from '../node_modules/@rdlabo/capacitor-native-ui/src/native/overlays/controller';
+import type { enableNativeUI } from '../node_modules/@rdlabo/capacitor-native-ui/src/native';
+import type { createRuntime } from '../node_modules/@rdlabo/capacitor-native-ui/src/native/runtime';
 
 const bundle = buildSync({
   stdin: {
     contents:
-      "export { createOverlayController } from '../../packages/capacitor-native-ui/src/native/overlays/controller'; export { createRuntime } from '../../packages/capacitor-native-ui/src/native/runtime'; export { enableNativeUI } from '../../packages/capacitor-native-ui/src/native';",
+      "export { createOverlayController } from '../node_modules/@rdlabo/capacitor-native-ui/src/native/overlays/controller'; export { createRuntime } from '../node_modules/@rdlabo/capacitor-native-ui/src/native/runtime'; export { enableNativeUI } from '../node_modules/@rdlabo/capacitor-native-ui/src/native';",
     resolveDir: __dirname,
   },
   bundle: true,

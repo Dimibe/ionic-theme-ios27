@@ -38,7 +38,7 @@ npm start
 ionic serve
 ```
 
-Navigate to `http://localhost:4200/`. The application reloads when demo source changes. Rebuild the workspace packages from the repository root after changing theme or native runtime source.
+Navigate to `http://localhost:4200/`. The application reloads when demo source changes. Run `npm run build:demo` from the repository root after changing theme source; it rebuilds and reinstalls the local theme before building the demo. Use the candidate archive command below to test plugin changes.
 
 ## Building
 
@@ -86,3 +86,11 @@ To compare appearances:
 The startup query applies for the runtime's lifetime. Leave `buttonDefaultFill` out
 of the query to use the chosen configuration's default shown above. For local
 exceptions and fill rules, see [Choose button appearance](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/vertical-bars#choose-button-appearance).
+
+## Plugin integration testing
+
+This demo and its browser and simulator integration tests remain in the theme repository. Plugin implementation unit tests live in [webview-native-ui/capacitor-plugin](https://github.com/webview-native-ui/capacitor-plugin). E2E harnesses that need internal instrumentation read the installed package’s shipped `src` directory; the application itself consumes public package exports.
+
+From the repository root, run `npm run test:native-candidate -- /path/to/plugin.tgz --e2e` to test an unpublished plugin in an isolated copy. Add `--simulator=UDID` for native integration suites. No sibling plugin source checkout or npm publication is required.
+
+The demo installs the local theme as a regular package (`install-links=true`) so the theme and app share the same installed plugin. Integration tests use the installed theme sources. This avoids duplicate plugin state through the root checkout’s `node_modules`. Candidate browser runs always start their own demo server.

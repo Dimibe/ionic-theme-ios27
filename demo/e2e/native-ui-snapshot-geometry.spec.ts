@@ -1,13 +1,17 @@
 import { expect, test } from '@playwright/test';
 import { buildSync } from 'esbuild';
-import type { enableNativeUI } from '../../packages/capacitor-native-ui/src/core';
-import type { createRuntime } from '../../packages/capacitor-native-ui/src/native/runtime';
-import type { NativeUIPlugin, NativeUIRuntimeHandle, NativeUISuspension } from '../../packages/capacitor-native-ui/src/native/definitions';
+import type { enableNativeUI } from '../node_modules/@rdlabo/capacitor-native-ui/src/core';
+import type { createRuntime } from '../node_modules/@rdlabo/capacitor-native-ui/src/native/runtime';
+import type {
+  NativeUIPlugin,
+  NativeUIRuntimeHandle,
+  NativeUISuspension,
+} from '../node_modules/@rdlabo/capacitor-native-ui/src/native/definitions';
 
 const bundle = buildSync({
   stdin: {
     contents:
-      "export { createRuntime } from '../../packages/capacitor-native-ui/src/native/runtime'; export { Capacitor } from '@capacitor/core'; export { enableNativeUI } from '../../packages/capacitor-native-ui/src/core';",
+      "export { createRuntime } from '../node_modules/@rdlabo/capacitor-native-ui/src/native/runtime'; export { Capacitor } from '@capacitor/core'; export { enableNativeUI } from '../node_modules/@rdlabo/capacitor-native-ui/src/core';",
     resolveDir: __dirname,
   },
   bundle: true,

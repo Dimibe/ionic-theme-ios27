@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { compile } from 'sass';
 import { resolve } from 'node:path';
 
-const css = compile(resolve(__dirname, '../../packages/theme-ios27/src/styles/vertical-bars.scss')).css;
+const css = compile(resolve(__dirname, '../../src/styles/vertical-bars.scss')).css;
 
 for (const tag of ['ion-header', 'ion-footer']) {
   for (const fade of [false, true]) {

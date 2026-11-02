@@ -9,7 +9,7 @@ import type {
   NativeUISnapshot,
   NativeUIPlugin,
   NativeUIConnectionState,
-} from '../../packages/capacitor-native-ui/src/native/definitions';
+} from '../node_modules/@rdlabo/capacitor-native-ui/src/native/definitions';
 import type { NativeUIMockCore, TestAppElement } from './native-ui-mock';
 
 const importer = new NodePackageImporter(resolve(__dirname, '../../'));
@@ -2936,7 +2936,7 @@ for (const theme of ['light', 'class', 'system', 'always'] as const) {
     });
     if (theme !== 'light') {
       await page.addStyleTag({
-        content: compile(resolve(__dirname, `../../packages/theme-ios27/src/styles/ionic-theme-ios27-dark-${theme}.scss`), {
+        content: compile(resolve(__dirname, `../../src/styles/ionic-theme-ios27-dark-${theme}.scss`), {
           importers: [importer],
         }).css,
       });

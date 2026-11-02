@@ -1,5 +1,5 @@
 import { expect, test, vi } from 'vitest';
-import { withNativeUITransition, connectNativeUITransition } from '../../packages/theme-ios27/src/transition/native-ui';
+import { withNativeUITransition, connectNativeUITransition } from '../node_modules/@rdlabo/ionic-theme-ios27/src/transition/native-ui';
 import {
   VERTICAL_BARS_TRANSITION_CANCELED,
   getNativeSearchBindings,
@@ -7,8 +7,8 @@ import {
   setNativeUIIntegration,
 } from '@rdlabo/capacitor-native-ui/integration';
 import type { Animation } from '@ionic/core';
-import { configureNativeTransition, enableNativeUI } from '../../packages/capacitor-native-ui/src/native';
-import { iosTransitionAnimation } from '../../packages/theme-ios27/src/transition/ios.transition';
+import { configureNativeTransition, enableNativeUI } from '@rdlabo/capacitor-native-ui';
+import { iosTransitionAnimation } from '../node_modules/@rdlabo/ionic-theme-ios27/src/transition/ios.transition';
 
 const fixture = (trackProgress = false) => {
   const doc = {} as Document;

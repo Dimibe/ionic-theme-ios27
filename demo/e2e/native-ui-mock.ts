@@ -3,7 +3,7 @@ import type {
   NativeUISuspension,
   NativeUIControl,
   NativeUISnapshot,
-} from '../../packages/capacitor-native-ui/src/native/definitions';
+} from '../node_modules/@rdlabo/capacitor-native-ui/src/native/definitions';
 
 /**
  * State carried by the fake native plugin that `mockNative` installs.

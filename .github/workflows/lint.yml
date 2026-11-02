@@ -54,7 +54,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-angular-${{ hashFiles('demo/package-lock.json') }}-
             ${{ runner.os }}-angular-
-      # The demo consumes the workspace packages, so install the root
+      # The demo consumes the local theme package, so install the root
       # dependencies and verify the package build before checking the demo.
       - run: npm ci
       - run: npm run build

@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { setVerticalBarsLayout, applyFoldStateClasses } from '../../packages/theme-ios27/src/layout';
+import { setVerticalBarsLayout, applyFoldStateClasses } from '../node_modules/@rdlabo/ionic-theme-ios27/src/layout';
 
 test('theme layout resolves logical edges and clears only its own classes and inset', () => {
   const root = document.createElement('div');

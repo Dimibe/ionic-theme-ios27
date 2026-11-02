@@ -4,6 +4,8 @@ import { defineConfig, devices } from '@playwright/test';
  * Playwright configuration for screenshot testing
  * See https://playwright.dev/docs/test-configuration
  */
+const port = process.env['PLAYWRIGHT_PORT'] ?? '4200';
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: true,
@@ -12,7 +14,7 @@ export default defineConfig({
   retries: process.env['CI'] ? 2 : 0,
   reporter: 'html',
   use: {
-    baseURL: 'http://localhost:4200',
+    baseURL: `http://localhost:${port}`,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },
@@ -28,9 +30,9 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: process.env['IONIC_MAJOR'] === '8' ? 'npm run start -- --configuration=ionic8' : 'npm run start',
-    url: 'http://localhost:4200',
-    reuseExistingServer: !process.env['CI'] && process.env['IONIC_MAJOR'] === undefined,
+    command: `npm run start -- --port=${port}${process.env['IONIC_MAJOR'] === '8' ? ' --configuration=ionic8' : ''}`,
+    url: `http://localhost:${port}`,
+    reuseExistingServer: !process.env['CI'] && process.env['IONIC_MAJOR'] === undefined && process.env['PLAYWRIGHT_PORT'] === undefined,
     timeout: 120000,
   },
 });

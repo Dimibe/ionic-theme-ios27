@@ -1,74 +1,61 @@
-# Ionic Theme and Capacitor Native UI
+# Ionic Theme iOS27
 
-Install from npm; see [Native UI installation](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/readme#install-from-npm) or [theme setup](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/setup). For 1.x, use the [v1.2.1 guide](https://github.com/webview-native-ui/ionic-theme-ios27/tree/ios27-v1.2.1).
-Bring the iOS look to your Ionic app, or add native controls to your Capacitor app while keeping Web content, routing, and application state.
+Install with `npm install @rdlabo/ionic-theme-ios27 @erkamyaman/capacitor-foldable`. For 1.x, use the [v1.2.1 guide](https://github.com/webview-native-ui/ionic-theme-ios27/tree/ios27-v1.2.1).
+A theme for Ionic apps that brings iOS 27 Liquid Glass and motion to the Web. Capacitor iOS apps can also opt into Native UI for supported controls, officially supported starting with 2.0.0.
 
-**[Try the Ionic 9 demo](https://ionic-theme-ios27.rdlabo.dev/)**
+**[Ionic 9 demo](https://ionic-theme-ios27.rdlabo.dev/) · [Setup guide](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/setup)**
+
+<!-- rdlabo-docs-pick -->
 
 <p>
-  <img src="screenshots/ios27-settings.png" width="32%" alt="iOS 27 theme: Settings with Liquid Glass controls" />
-  <img src="screenshots/ios27-settings-dark.png" width="32%" alt="iOS 27 theme: Settings in dark mode" />
-  <img src="screenshots/ios27-library.png" width="32%" alt="iOS 27 theme: Library with styled buttons and tabs" />
+  <img src="https://raw.githubusercontent.com/rdlabo-dev/ionic-theme-ios27/main/screenshots/ios27-settings.png" width="32%" alt="iOS 27 theme: Settings in light mode with a Liquid Glass search bar" />
+  <img src="https://raw.githubusercontent.com/rdlabo-dev/ionic-theme-ios27/main/screenshots/ios27-settings-dark.png" width="32%" alt="iOS 27 theme: Settings in dark mode" />
+  <img src="https://raw.githubusercontent.com/rdlabo-dev/ionic-theme-ios27/main/screenshots/ios27-library.png" width="32%" alt="iOS 27 theme: Library with Liquid Glass buttons and tab bar" />
 </p>
 
-## Give your Web UI the iOS look
+<!-- /rdlabo-docs-pick -->
 
-**[@rdlabo/ionic-theme-ios27](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/readme)** brings Liquid Glass styling, light and dark appearances, and coordinated animations to Ionic toolbars, tabs, lists, buttons, search, and overlays. Use it on its own to style your Web UI.
+## What would you like to do?
 
-[Get started with the theme](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/setup) · [Explore theme features](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/features)
+| Goal                                                  | Guide                                                                                                       |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Style an existing Ionic app                           | [Get started](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/setup)                                |
+| Select iOS 26/27 styles and optionally use MD3        | [Adaptive themes](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/adaptive-themes)                  |
+| Add native iOS controls after setting up the theme    | [Add Native UI](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/add-native-ui)                      |
+| Add a side rail to Ionic while keeping your own theme | [Vertical Bars step by step](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/ionic-vertical-bars) |
+| Upgrade an existing installation                      | [Migration](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/migration)                              |
 
-## Bring supported controls into native UI
+## Get started
 
-**[@rdlabo/capacitor-native-ui](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/readme)** projects supported Ionic controls into UIKit and SwiftUI on iOS. Your existing markup supplies their labels, icons, and state; native actions flow back to your Ionic components. Page content and routing stay in the WebView.
+We use [Capacitor Foldable](https://github.com/erkamyaman/capacitor-foldable), an excellent community plugin by Erkam Yaman, as our standard device-layout integration. It exposes fold state, hinge geometry, bar placement and change events to your application, giving you control over how the layout responds. Foldable handles device reporting; the theme provides Web layout helpers and Native UI projects controls. Install it alongside the package you use, then connect its events in your app.
 
-Keep your existing Web appearance or pair it with the iOS theme. Native UI is opt-in and officially supported starting with 2.0.0; unsupported controls and browsers retain Web presentation. On Android, standard controls stay on the Web; experimental app-local extensions can render with Jetpack Compose. Your app or theme owns Web layout and styling.
+Use the [four-step setup guide](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/setup) to install the theme, load styles, configure animations, and preview your first screen. Its declared Ionic compatibility range is `>=8.8.1 <10`, including Angular, React, and Vue; automated E2E validation targets Ionic 9. A native Capacitor project is not required for browser use.
 
-[How projection connects to your DOM](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/readme#how-projection-works) · [Ionic setup](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/setup) · [HTML setup](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/framework-independent) · [Supported controls](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/native-ui#supported-markup)
+The theme styles toolbars, tabs, lists, buttons, search, and overlays, with light and dark appearances. It does not activate native controls. Once the Web theme is working, you can optionally [add Native UI](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/add-native-ui).
 
-The same Library screen with Native UI off and on, captured while dragging the selected tab:
+## Customize your app
 
-[![Web and native tab bars during the same drag, with enlarged glass details](screenshots/native-ui-drag/comparison.png)](screenshots/native-ui-drag/comparison.png)
+- [Features](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/features): CSS variables, Liquid Glass, and selective component imports.
+- [Special markup and classes](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/special-markup): opt-in component behavior.
+- [Using ion-item-group](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/using-ion-item-group): inset list markup.
+- [Animation](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/animation): tab, segment, and search effects.
+- [ESLint](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/eslint): catch unsupported list structure.
+- [Vertical Bars layout](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/vertical-bars-layout): spacing, RTL, device placement, posture, and split panes.
 
-## Native UI in 2.x
+## Repository boundaries
 
-Native UI uses the shared Native UI Engine for prepared images beneath blocking Web overlays, native restoration after dismissal, and scroll tracking. Images are noninteractive; when no usable image is available, controls retain their existing Web fallback.
+The plugin is maintained in [webview-native-ui/capacitor-plugin](https://github.com/webview-native-ui/capacitor-plugin). This repository owns the Ionic theme, the combined demo, browser screenshots, and simulator integration tests. The demo installs `@rdlabo/capacitor-native-ui` from npm; theme releases do not publish or change the plugin version.
 
-Keep Native UI and the optional theme on matching 2.x versions. After updating, build your Web application, run `npx cap sync`, and rebuild the native application. Follow the [Native UI setup guide](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/setup) for initialization. Native UI enables Ionic overlay support internally; applications do not need an additional Engine initializer.
+To verify an unpublished plugin archive against the real demo, run:
 
-## Choose what your app needs
+```sh
+npm run test:native-candidate -- /absolute/path/rdlabo-capacitor-native-ui-VERSION.tgz --e2e
+```
 
-| Your goal                                                        | Start here                                                                                                                          |
-| ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Style your Ionic Web UI                                          | [Set up the theme](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/setup)                                                   |
-| Render Ionic controls natively with your existing Web appearance | [Set up Native UI](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/setup)                                                 |
-| Use native buttons without Ionic                                 | [HTML setup](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/framework-independent)                                       |
-| Add a vertical rail to Ionic while keeping your theme            | [Ionic rail setup](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/ionic-vertical-bars#try-it-in-your-existing-ionic-app) |
-| Add a vertical rail without Ionic                                | [HTML rail setup](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/framework-independent)                                  |
-| Add custom SwiftUI or Compose content                            | [App-local extensions (experimental)](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/native-ui-extensions)               |
-
-Already using the iOS theme? [Add Native UI to your theme](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/add-native-ui) as your next step.
-
-The declared Ionic compatibility range remains `>=8.8.1 <10`; automated E2E validation targets Ionic 9. Native UI requires Capacitor 8; see its setup guide for supported iOS environments.
-
-## Explore further
-
-- [Device layout and posture](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/vertical-bars-layout) · [Vertical Bars with an existing theme](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/ionic-vertical-bars).
-- [Theme migration](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/migration) · [Native UI migration](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/migration).
-
-Use standard native buttons without Ionic through the [plain HTML adapter](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/framework-independent), or keep Ionic markup and enable only [Vertical Bars](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/configuration). Both use the same native renderers.
-
-## For plugin maintainers
-
-[`@webview-native-ui/engine`](https://github.com/webview-native-ui/engine) provides DOM/native placement, scroll tracking and prepared-image handoff. It is a library dependency for plugin maintainers, not a Capacitor plugin for applications. Native libraries support iOS and Android.
-
-## Licenses
-
-The theme and `@rdlabo/capacitor-native-ui` use the MIT license. The independent [Engine repository](https://github.com/webview-native-ui/engine) owns its licensing and notices.
+This creates an isolated temporary checkout and leaves your manifests and lockfiles unchanged. Add `--simulator=UDID` for native UI, search, and edge simulator suites. Diagnostics and the temporary demo are retained at the printed path. Plugin-only unit and native library tests live in the capacitor repository. The plugin repository also runs this demo against its candidate archive in CI, so merge this repository’s migration before enabling that workflow.
 
 ## Maintenance
 
-Native UI and the theme share a release version. Engine is maintained and released independently at [webview-native-ui/engine](https://github.com/webview-native-ui/engine). Its npm, SwiftPM and Maven versions must stay aligned when updating the pinned dependency.
+Release the root theme package with `npm run release` from a clean, up-to-date `main`. The `ios27-v…` tag workflow publishes only the theme, using `next` for prereleases and `latest` for stable releases.
 
-Release from a clean, up-to-date `main` with `npm run release`. The command bumps the root version and creates the `ios27-v…` tag. The tag workflow updates the two workspace versions, verifies the pinned Engine Maven artifact, and publishes Native UI followed by the theme. Prereleases use the npm `next` dist-tag. See the [workflows](.github/workflows).
-
-A partially published versioned release requires a new shared version: npm versions cannot be overwritten, and this release workflow does not resume partial publication.
+Theme and plugin versions are independent. A published npm version cannot be overwritten.

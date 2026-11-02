@@ -6,7 +6,7 @@ import type {
   NativeUIControl,
   NativeUIItem,
   NativeUISnapshot,
-} from '../../packages/capacitor-native-ui/src/native/definitions';
+} from '../node_modules/@rdlabo/capacitor-native-ui/src/native/definitions';
 import type { NativeUIMockCore } from './native-ui-mock';
 
 interface GeometryEvidence {

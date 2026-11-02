@@ -17,7 +17,7 @@ let package = Package(
         .package(name: "CapacitorKeyboard", path: "../../../node_modules/@capacitor/keyboard"),
         .package(name: "CapacitorStatusBar", path: "../../../node_modules/@capacitor/status-bar"),
         .package(name: "ErkamyamanCapacitorFoldable", path: "../../../node_modules/@erkamyaman/capacitor-foldable"),
-        .package(name: "RdlaboCapacitorNativeUi", path: "../../../../packages/capacitor-native-ui")
+        .package(name: "RdlaboCapacitorNativeUi", path: "../../../node_modules/@rdlabo/capacitor-native-ui")
     ],
     targets: [
         .target(

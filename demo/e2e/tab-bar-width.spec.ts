@@ -3,8 +3,8 @@ import { compile } from 'sass';
 import { resolve } from 'node:path';
 
 const css =
-  compile(resolve(__dirname, '../../packages/theme-ios27/src/styles/components/ion-tabs.scss')).css +
-  compile(resolve(__dirname, '../../packages/theme-ios27/src/styles/vertical-bars.scss')).css;
+  compile(resolve(__dirname, '../../src/styles/components/ion-tabs.scss')).css +
+  compile(resolve(__dirname, '../../src/styles/vertical-bars.scss')).css;
 
 // iPhone / iOS 27 measurements: short two/three-tab platters are 188/274pt;
 // four tabs fill the available phone width. Long labels can expand compact bars.
@@ -87,7 +87,7 @@ test('compact tabs retain their measured width beside a visible split-pane menu'
   await page.setViewportSize({ width: 1200, height: 720 });
   await page.goto('/main/index/tabs');
   await page.addStyleTag({
-    content: css + compile(resolve(__dirname, '../../packages/theme-ios27/src/styles/components/ion-menu.scss')).css,
+    content: css + compile(resolve(__dirname, '../../src/styles/components/ion-menu.scss')).css,
   });
   await expect(page.locator('ion-split-pane')).toHaveClass(/split-pane-visible/);
   const bars = page.locator('app-tabs ion-tab-bar');

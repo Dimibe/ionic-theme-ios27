@@ -4,7 +4,7 @@ import { buildSync } from 'esbuild';
 const bundle = buildSync({
   stdin: {
     contents:
-      "export { createRuntime } from '../../packages/capacitor-native-ui/src/native/runtime'; export { createCoveredSnapshots } from '../../packages/capacitor-native-ui/src/native/shared/covered-snapshot'; export { Capacitor } from '@capacitor/core';",
+      "export { createRuntime } from '../node_modules/@rdlabo/capacitor-native-ui/src/native/runtime'; export { createCoveredSnapshots } from '../node_modules/@rdlabo/capacitor-native-ui/src/native/shared/covered-snapshot'; export { Capacitor } from '@capacitor/core';",
     resolveDir: __dirname,
   },
   bundle: true,

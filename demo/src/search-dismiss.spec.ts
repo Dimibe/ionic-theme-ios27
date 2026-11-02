@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from 'vitest';
-import { addSearchDismissButton } from '../../packages/theme-ios27/src/tab-bar-searchable/dismiss-button';
+import { addSearchDismissButton } from '../node_modules/@rdlabo/ionic-theme-ios27/src/tab-bar-searchable/dismiss-button';
 
 afterEach(() => {
   document.body.replaceChildren();

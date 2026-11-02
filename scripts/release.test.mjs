@@ -8,23 +8,21 @@ import { test } from 'node:test';
 
 // Execute the actual workflow publish steps against a fake registry; never publish to npm.
 const workflow = readFileSync(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8');
-const engine = '@webview-native-ui/engine';
 const native = '@rdlabo/capacitor-native-ui';
 const theme = '@rdlabo/ionic-theme-ios27';
 
-function runBetaRelease(t, { existing = {}, dependencyMismatch = false, kitDependencyMismatch = false, legacy = false, failTheme = false, missingMaven = false } = {}) {
+function runBetaRelease(t, { existing = {}, legacy = false, failTheme = false } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'release-test-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const version = '1.2.2-beta.pr298.sha0123456789ab';
   const folder = join(directory, 'npm-candidate');
-  const names = legacy ? ['@rdlabo/ionic-theme-ios26'] : [native, theme];
+  const names = legacy ? ['@rdlabo/ionic-theme-ios26'] : [theme];
   mkdirSync(folder);
   mkdirSync(join(directory, 'package'));
   const registry = {};
   for (const name of names) {
     const manifest = { name, version };
-    if (name === native) manifest.dependencies = { [engine]: kitDependencyMismatch ? '^2.0.0' : '^1.0.0' };
-    if (name === theme) manifest.dependencies = { [native]: dependencyMismatch ? '1.2.1' : version };
+    if (name === theme) manifest.dependencies = { [native]: '2.1.0' };
     writeFileSync(join(directory, 'package/package.json'), JSON.stringify(manifest));
     const archive = join(folder, `${name.replace('@', '').replace('/', '-')}-${version}.tgz`);
     execFileSync('tar', ['-czf', archive, '-C', directory, 'package']);
@@ -57,50 +55,43 @@ if (args[0] === 'view') {
     env: {
       ...process.env, PATH: `${directory}:${process.env.PATH}`, RUNNER_TEMP: directory,
       VERSION: version, EXPECTED_VERSION: version, EXPECTED_NAME: names.at(-1), DIST_TAG: 'beta',
-      MAVEN_LOG: join(directory, 'maven.log'), CALL_LOG: log, REGISTRY: join(directory, 'registry.json'), FAIL_THEME: String(failTheme), MISSING_MAVEN: String(missingMaven),
+      MAVEN_LOG: join(directory, 'maven.log'), CALL_LOG: log, REGISTRY: join(directory, 'registry.json'), FAIL_THEME: String(failTheme),
     },
   });
   const calls = existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').map(line => JSON.parse(line)) : [];
   return { result, calls, published: calls.filter(call => call[0] === 'publish'), maven: existsSync(join(directory, 'maven.log')) ? readFileSync(join(directory, 'maven.log'), 'utf8') : '' };
 }
 
-test(`beta: checks all versions before publishing native, then theme`, t => {
+test(`beta: publishes only the theme with an independently versioned plugin`, t => {
   const { result, calls, published } = runBetaRelease(t);
   assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(calls.map(call => call[0]), ['view', 'view', 'publish', 'publish']);
-  assert.match(published[0][1], /rdlabo-capacitor-native-ui-/);
-  assert.match(published[1][1], /rdlabo-ionic-theme-ios27-/);
+  assert.deepEqual(calls.map(call => call[0]), ['view', 'publish']);
+  assert.match(published[0][1], /rdlabo-ionic-theme-ios27-/);
   for (const call of published) {
     assert(call.includes('--ignore-scripts'));
     assert(call.includes('--provenance'));
     assert.equal(call.at(-1), 'beta');
   }
 });
-test(`beta: retry completes the theme after a partial release`, t => {
+test(`beta: retry publishes the theme after a failed attempt`, t => {
   assert.notEqual(runBetaRelease(t, { failTheme: true }).result.status, 0);
-  const { result, published } = runBetaRelease(t, { existing: { [native]: 'matching' } });
+  const { result, published } = runBetaRelease(t, {});
   assert.equal(result.status, 0, result.stderr);
   assert.equal(published.length, 1);
   assert.match(published[0][1], /rdlabo-ionic-theme-ios27-/);
 });
 test(`beta: complete release is idempotent`, t => {
-  const { result, published } = runBetaRelease(t, { existing: { [native]: 'matching', [theme]: 'matching' } });
+  const { result, published } = runBetaRelease(t, { existing: { [theme]: 'matching' } });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(published.length, 0);
 });
 for (const value of ['sha512-different', 'E401', 'E500']) {
-  test(`beta: ${value} on theme prevents either publication`, t => {
+  test(`beta: ${value} on theme prevents publication`, t => {
     const { result, published } = runBetaRelease(t, { existing: { [theme]: value } });
     assert.notEqual(result.status, 0);
     assert.equal(published.length, 0);
   });
 }
-test(`beta: mismatched native dependency prevents either publication`, t => {
-  const { result, published } = runBetaRelease(t, { dependencyMismatch: true });
-  assert.notEqual(result.status, 0);
-  assert.equal(published.length, 0);
-});
-
 test('ios26 beta still publishes its single package', t => {
   const { result, published } = runBetaRelease(t, { legacy: true });
   assert.equal(result.status, 0, result.stderr);
@@ -109,36 +100,24 @@ test('ios26 beta still publishes its single package', t => {
 });
 
 for (const version of ['2.0.0', '2.0.0-0']) {
-  test(`versioned release: publishes workspaces in dependency order (${version})`, t => {
-    const { result, published } = runWorkspaceRelease(t, version);
+  test(`versioned release: publishes only the theme (${version})`, t => {
+    const { result, published } = runPackageRelease(t, version);
     assert.equal(result.status, 0, result.stderr);
-    assert.deepEqual(published.map(call => call[call.indexOf('--workspace') + 1]), ['packages/capacitor-native-ui', 'packages/theme-ios27']);
+    assert.equal(published.length, 1);
+    assert.equal(published[0][0], 'publish');
+    assert(!published[0].includes('--workspace'));
     for (const call of published) {
       assert(call.includes('--provenance'));
-      assert(!call.includes('--ignore-scripts'), 'Capacitor prepublishOnly must run');
+      assert(!call.includes('--ignore-scripts'), 'Versioned release must retain package lifecycle scripts');
       assert.equal(call.at(-1), version.includes('-') ? 'next' : 'latest');
     }
   });
 }
 
-test('versioned release: dependency mismatch prevents either publication', t => {
-  const { result, published } = runWorkspaceRelease(t, '2.0.0', true);
-  assert.notEqual(result.status, 0);
-  assert.equal(published.length, 0);
-});
-
-function runWorkspaceRelease(t, version, mismatch = false) {
-  const directory = mkdtempSync(join(tmpdir(), 'workspace-release-test-'));
+function runPackageRelease(t, version) {
+  const directory = mkdtempSync(join(tmpdir(), 'package-release-test-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
-  const workspaces = ['packages/capacitor-native-ui', 'packages/theme-ios27'];
-  writeFileSync(join(directory, 'package.json'), JSON.stringify({ version, workspaces }));
-  for (const [index, workspace] of workspaces.entries()) {
-    mkdirSync(join(directory, workspace), { recursive: true });
-    writeFileSync(join(directory, workspace, 'package.json'), JSON.stringify({
-      name: [native, theme][index], version,
-      dependencies: index === 0 ? { [engine]: '^1.0.0' } : { [native]: mismatch ? '1.2.1' : version },
-    }));
-  }
+  writeFileSync(join(directory, 'package.json'), JSON.stringify({ name: theme, version, dependencies: { [native]: '2.1.0' } }));
   const log = join(directory, 'calls.jsonl');
   writeFileSync(join(directory, 'npm'), `#!/usr/bin/env node
 require('node:fs').appendFileSync(process.env.CALL_LOG, JSON.stringify(process.argv.slice(2)) + '\\n');
@@ -151,23 +130,3 @@ require('node:fs').appendFileSync(process.env.CALL_LOG, JSON.stringify(process.a
   const published = existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').map(line => JSON.parse(line)) : [];
   return { result, published };
 }
-
-test('beta: incompatible Engine major prevents all publication', t => {
-  const { result, published } = runBetaRelease(t, { kitDependencyMismatch: true });
-  assert.notEqual(result.status, 0);
-  assert.equal(published.length, 0);
-});
-
-test('beta: missing Maven dependency prevents npm publication', t => {
-  const { result, published } = runBetaRelease(t, { missingMaven: true });
-  assert.notEqual(result.status, 0);
-  assert.equal(published.length, 0);
-});
-
-test('beta: verifies the minimum compatible Engine version in Maven', t => {
-  const { result, maven } = runBetaRelease(t);
-  assert.equal(result.status, 0, result.stderr);
-  assert.match(maven, /webview-native-ui\/engine\/1\.0\.0\/engine-1\.0\.0\.pom/);
-  assert.match(maven, /engine-1\.0\.0\.aar/);
-  assert(!maven.includes('beta.pr'));
-});

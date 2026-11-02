@@ -1,32 +1,75 @@
 {
-  "name": "ionic-theme-workspace",
+  "name": "@rdlabo/ionic-theme-ios27",
   "version": "2.1.0",
-  "private": true,
-  "type": "module",
-  "workspaces": [
-    "packages/capacitor-native-ui",
-    "packages/theme-ios27"
+  "description": "iOS27 Theme for Ionic Framework",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./dist/css/*": "./dist/css/*",
+    "./src/styles/*": "./src/styles/*"
+  },
+  "files": [
+    "dist",
+    "src",
+    "LICENSE",
+    "README.md",
+    "docs"
   ],
   "scripts": {
-    "build": "npm run build --workspaces",
-    "docgen": "npm run docgen -w @rdlabo/capacitor-native-ui",
-    "build:css": "npm run build:css -w @rdlabo/ionic-theme-ios27",
-    "build:ts": "npm run build -w @rdlabo/capacitor-native-ui && npm run build:ts -w @rdlabo/ionic-theme-ios27",
-    "build:demo": "npm run build && npm --prefix demo run build -- --configuration=production",
+    "build": "rm -rf dist && npm run build:css && npm run build:ts",
+    "build:css": "rm -rf dist/css && sass src/styles:dist/css --style=compressed --no-source-map",
+    "build:ts": "tsc --noEmit && rdlabo-build-theme",
+    "build:demo": "npm run build && npm --prefix demo ci && npm --prefix demo run build -- --configuration=production",
     "lint": "prettier --check \"./**/*.{scss,ts,md}\" && prettier --parser angular --check \"./**/*.html\"",
     "fmt": "prettier --write \"./**/*.{scss,ts,md}\" && prettier --parser angular --write \"./**/*.html\"",
     "test:esm": "node scripts/verify-packages.mjs --esm",
-    "pack:packages": "npm pack --workspaces --ignore-scripts",
     "test:packages": "node scripts/verify-packages.mjs",
     "test:release": "node --test scripts/release.test.mjs",
-    "release": "np --no-tests --no-publish --branch main"
+    "release": "np --no-tests --no-publish --branch main",
+    "test:native-candidate": "node scripts/test-native-candidate.mjs",
+    "prebuild:css": "rdlabo-copy-structured-list src/styles/utils/structured-list.scss"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/webview-native-ui/ionic-theme-ios27.git"
+  },
+  "keywords": [
+    "ionic",
+    "framework",
+    "theme",
+    "css",
+    "ios27"
+  ],
+  "author": "Masahiko Sakakibara <sakakibara@rdlabo.jp>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/webview-native-ui/ionic-theme-ios27/issues"
+  },
+  "homepage": "https://docs.rdlabo.dev/projects/ionic-theme-ios27",
+  "dependencies": {
+    "@rdlabo/capacitor-native-ui": "2.1.0",
+    "@rdlabo/ionic-theme-utils": "0.1.5",
+    "@stencil/core": "^4.43.5",
+    "ionicons": "^8.1.0"
+  },
+  "peerDependencies": {
+    "@capacitor/core": ">=8.0.0 <9",
+    "@ionic/core": ">=8.8.1 <10"
+  },
+  "peerDependenciesMeta": {
+    "@capacitor/core": {
+      "optional": true
+    }
+  },
+  "type": "module",
   "devDependencies": {
-    "@capacitor/android": "^8.5.3",
     "@capacitor/core": "^8.5.2",
     "@ionic/angular": "^9.0.0",
-    "@rdlabo/capacitor-docgen": "^0.4.1",
-    "@rdlabo/ionic-theme-utils": "0.1.5",
     "husky": "^9.1.7",
     "lint-staged": "^16.2.1",
     "np": "^10.2.0",
@@ -36,9 +79,5 @@
     "typescript": "^5.9.3",
     "wrangler": "^4.125.0",
     "esbuild": "0.28.1"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+ssh://git@github.com/webview-native-ui/ionic-theme-ios27.git"
   }
 }
