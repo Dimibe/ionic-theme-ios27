@@ -1,6 +1,6 @@
 # Add Native UI to your theme
 
-Already using `@rdlabo/ionic-theme-ios27`? Add native controls on iOS while keeping your theme styles, Web content, and routing. Unsupported controls, browsers, and Android retain their Web appearance.
+Already using `@rdlabo/ionic-theme-ios27` in a Capacitor app? Add native controls on iOS while keeping your theme styles, Web content, and routing. Unsupported controls, browsers, and Android retain their Web appearance.
 
 Start with [theme setup](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/setup) if you have not configured the theme yet. If you use a different Web appearance, follow [Native UI setup](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/setup) instead.
 
@@ -8,7 +8,7 @@ Read [how projection works](https://docs.rdlabo.dev/projects/capacitor-native-ui
 
 ## 1. Install the native plugin
 
-This guide assumes a Capacitor 8 application with an iOS project. Web-only theme users can continue without Capacitor; adding native iOS controls requires setting up that native project first. See [Native UI requirements](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/readme#requirements) for supported Ionic, iOS, and Xcode versions.
+This guide assumes a Capacitor 8 application with an iOS project. For Cordova, follow the separate [Cordova setup](cordova.md). Web-only theme users can continue without Capacitor; adding native iOS controls requires setting up that native project first. See [Native UI requirements](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/readme#requirements) for supported Ionic, iOS, and Xcode versions.
 
 The theme and Native UI are versioned independently. Install a Native UI version compatible with the theme’s declared peer dependency, and install Foldable as a separate application dependency:
 

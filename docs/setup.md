@@ -4,7 +4,7 @@ Give an existing Ionic app the iOS 27 appearance in four steps. This guide uses 
 
 ## Before you start
 
-Use an existing Ionic Angular, React, or Vue application with Ionic `>=8.8.1 <10`. Keep Ionic's base CSS imports. Browser-only apps do not need a native Capacitor project.
+Use an existing Ionic Angular, React, or Vue application with Ionic `>=8.8.1 <10`. Keep Ionic's base CSS imports. Browser-only apps do not need a native Capacitor project. This is the standard setup for the standalone theme package; Cordova applications use the optional [Cordova setup](cordova.md).
 
 ## 1. Install the theme and Foldable
 

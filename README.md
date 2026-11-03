@@ -21,11 +21,14 @@ A theme for Ionic apps that brings iOS 27 Liquid Glass and motion to the Web. Ca
 | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
 | Style an existing Ionic app                           | [Get started](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/setup)                                |
 | Select iOS 26/27 styles and optionally use MD3        | [Adaptive themes](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/adaptive-themes)                  |
-| Add native iOS controls after setting up the theme    | [Add Native UI](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/add-native-ui)                      |
+| Add native iOS controls to a Capacitor app            | [Add Native UI](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/add-native-ui)                      |
 | Add a side rail to Ionic while keeping your own theme | [Vertical Bars step by step](https://docs.rdlabo.dev/projects/capacitor-native-ui/docs/ionic-vertical-bars) |
+| Optional: use the theme and Native UI with Cordova    | [Cordova setup](docs/cordova.md)                                                                            |
 | Upgrade an existing installation                      | [Migration](https://docs.rdlabo.dev/projects/ionic-theme-ios27/docs/migration)                              |
 
 ## Get started
+
+The standard guides use the standalone theme package, with Capacitor as the default native host. Theme-only browser use remains supported. For a Cordova application, use the optional [Cordova guide](docs/cordova.md), which covers its bundled theme and host-specific startup.
 
 We use [Capacitor Foldable](https://github.com/erkamyaman/capacitor-foldable), an excellent community plugin by Erkam Yaman, as our standard device-layout integration. It exposes fold state, hinge geometry, bar placement and change events to your application, giving you control over how the layout responds. Foldable handles device reporting; the theme provides Web layout helpers and Native UI projects controls. Install it alongside the package you use, then connect its events in your app.
 
@@ -44,7 +47,9 @@ The theme styles toolbars, tabs, lists, buttons, search, and overlays, with ligh
 
 ## Repository boundaries
 
-The plugin is maintained in [webview-native-ui/capacitor-plugin](https://github.com/webview-native-ui/capacitor-plugin). This repository owns the Ionic theme, the combined demo, browser screenshots, and simulator integration tests. The demo installs `@rdlabo/capacitor-native-ui` from npm; theme releases do not publish or change the plugin version.
+The Capacitor plugin is maintained in [webview-native-ui/capacitor-plugin](https://github.com/webview-native-ui/capacitor-plugin). This repository owns the Ionic theme, the combined demo, browser screenshots, and simulator integration tests. The demo installs `@rdlabo/capacitor-native-ui` from npm; theme releases do not publish or change the plugin version.
+
+The [Cordova plugin](https://github.com/webview-native-ui/cordova-plugin) is maintained separately. It distributes a pinned copy of this theme with its integration imports connected to Cordova. Shared theme fixes belong here; Cordova updates its pinned theme version in a subsequent plugin release. The Capacitor demo and candidate checks below do not validate Cordova.
 
 To verify an unpublished plugin archive against the real demo, run:
 
@@ -58,4 +63,4 @@ This creates an isolated temporary checkout and leaves your manifests and lockfi
 
 Release the root theme package with `npm run release` from a clean, up-to-date `main`. The `ios27-v…` tag workflow publishes only the theme, using `next` for prereleases and `latest` for stable releases.
 
-Theme and plugin versions are independent. Native UI is a required peer dependency so the theme and application share one plugin instance. npm 7+ installs it automatically for theme-only apps; other package managers must install required peers. Apps using native controls must also declare the plugin directly for Capacitor discovery. A published npm version cannot be overwritten.
+Theme and plugin versions are independent. For the standalone `@rdlabo/ionic-theme-ios27` package, Capacitor Native UI is a required peer dependency so the theme and application share one plugin instance. npm 7+ installs it automatically for theme-only apps; other package managers must install required peers. Apps using native controls must also declare the plugin directly for Capacitor discovery. A published npm version cannot be overwritten.
