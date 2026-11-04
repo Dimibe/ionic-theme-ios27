@@ -117,9 +117,15 @@ try {
   `], { cwd: dir, stdio: 'inherit' });
   writeFileSync(consumer, `
     import { iosTransitionAnimation, withNativeUITransition, setVerticalBarsLayout, applyFoldStateClasses } from '@rdlabo/ionic-theme-ios27';
+    import type { VerticalBarsLayout } from '@rdlabo/ionic-theme-ios27';
+    function existingLayoutConsumer(layout: VerticalBarsLayout) {
+      const edge: 'leading' | 'trailing' | null = layout.edge;
+      return edge;
+    }
+    setVerticalBarsLayout({ edge: undefined, toolbarTop: 174 });
     withNativeUITransition(iosTransitionAnimation);
   `);
-  execFileSync(process.execPath, [resolve('node_modules/typescript/bin/tsc'), '--noEmit', '--strict', '--skipLibCheck', '--module', 'esnext', '--moduleResolution', 'bundler', '--target', 'es2022', '--lib', 'es2022,dom', consumer], { cwd: dir, stdio: 'inherit' });
+  execFileSync(process.execPath, [resolve('node_modules/typescript/bin/tsc'), '--noEmit', '--strict', '--exactOptionalPropertyTypes', '--skipLibCheck', '--module', 'esnext', '--moduleResolution', 'bundler', '--target', 'es2022', '--lib', 'es2022,dom', consumer], { cwd: dir, stdio: 'inherit' });
   console.log('Theme archive, public exports, shared plugin peer, standalone Sass and Capacitor-free consumption verified.');
 } finally {
   rmSync(dir, { recursive: true, force: true });

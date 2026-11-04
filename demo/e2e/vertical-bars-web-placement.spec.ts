@@ -29,7 +29,7 @@ for (const edge of ['right', 'left'] as const) {
         ),
       );
     const x = edge === 'right' ? 394 : 24;
-    const expected = [170, 222, 282].map((y) => ({ x, y, width: 48, height: 48 }));
+    const expected = [174, 226, 286].map((y) => ({ x, y, width: 48, height: 48 }));
     await expect.poll(boxes).toEqual(expected);
     await page.evaluate(async () => {
       customElements.define(

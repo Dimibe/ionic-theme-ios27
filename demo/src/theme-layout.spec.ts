@@ -17,6 +17,28 @@ test('theme layout resolves logical edges and clears only its own classes and in
   expect(root.style.getPropertyValue('--app-space')).toBe('8px');
 });
 
+test('toolbar geometry switches and restores the previous inline value', () => {
+  const root = document.createElement('div');
+  const top = '--ios-theme-vertical-bars-toolbar-top';
+  root.style.setProperty(top, '210px');
+  setVerticalBarsLayout({ edge: 'trailing', toolbarTop: 174 }, root);
+  expect(root.style.getPropertyValue(top)).toBe('174px');
+  setVerticalBarsLayout({ edge: 'trailing', toolbarTop: 124 }, root);
+  expect(root.style.getPropertyValue(top)).toBe('124px');
+  setVerticalBarsLayout({ edge: null }, root);
+  expect(root.style.getPropertyValue(top)).toBe('210px');
+});
+
+test('clearing toolbar geometry preserves a later application override', () => {
+  const root = document.createElement('div');
+  const top = '--ios-theme-vertical-bars-toolbar-top';
+  setVerticalBarsLayout({ edge: 'trailing', toolbarTop: 174 }, root);
+  setVerticalBarsLayout({ edge: 'trailing', toolbarTop: 124 }, root);
+  root.style.setProperty(top, '250px');
+  setVerticalBarsLayout({ edge: null }, root);
+  expect(root.style.getPropertyValue(top)).toBe('250px');
+});
+
 test('theme posture helper preserves unrelated layout state', () => {
   const root = document.createElement('div');
   root.className = 'app-custom';

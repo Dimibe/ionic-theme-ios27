@@ -41,7 +41,7 @@ ion-app.ios-theme-vertical-bars ion-modal:not(.ios-theme-vertical-bars-modal) {
 ion-app.ios-theme-vertical-bars ion-modal.ios-theme-vertical-bars-modal {
   --ios-theme-vertical-bars-modal-toolbar-top: max(
     24px,
-    calc(var(--ios-theme-vertical-bars-toolbar-top, 170px) - var(--ios-theme-vertical-bars-modal-offset-top, 0px))
+    calc(var(--ios-theme-vertical-bars-toolbar-top, 174px) - var(--ios-theme-vertical-bars-modal-offset-top, 0px))
   );
 }
 
@@ -367,7 +367,7 @@ ion-app.ios-theme-vertical-bars ion-modal.ios-theme-vertical-bars-modal.ios-them
   > ion-back-button.ios-theme-vertical-bars-back-button-projection {
     position: fixed;
     z-index: 1001;
-    top: var(--ios-theme-vertical-bars-modal-toolbar-top, var(--ios-theme-vertical-bars-toolbar-top, 170px));
+    top: var(--ios-theme-vertical-bars-modal-toolbar-top, var(--ios-theme-vertical-bars-toolbar-top, 174px));
     right: max(24px, calc((var(--ios-theme-vertical-bars-safe-area-right-resolved) - 48px) / 2));
     display: block;
     width: 48px;
@@ -378,7 +378,7 @@ ion-app.ios-theme-vertical-bars ion-modal.ios-theme-vertical-bars-modal.ios-them
     position: fixed;
     z-index: 1001;
     top: calc(
-      var(--ios-theme-vertical-bars-modal-toolbar-top, var(--ios-theme-vertical-bars-toolbar-top, 170px)) +
+      var(--ios-theme-vertical-bars-modal-toolbar-top, var(--ios-theme-vertical-bars-toolbar-top, 174px)) +
         var(--ios-theme-vertical-bars-toolbar-offset, 0px)
     );
     right: max(24px, calc((var(--ios-theme-vertical-bars-safe-area-right-resolved) - 48px) / 2));
