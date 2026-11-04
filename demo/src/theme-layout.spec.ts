@@ -39,6 +39,21 @@ test('clearing toolbar geometry preserves a later application override', () => {
   expect(root.style.getPropertyValue(top)).toBe('250px');
 });
 
+test('identical layout input applies once and does not re-dispatch refresh', () => {
+  const root = document.createElement('div');
+  let refreshes = 0;
+  root.ownerDocument.defaultView?.addEventListener('nativeUIRefresh', () => refreshes++);
+  const layout = { edge: 'trailing' as const, inset: 84, toolbarTop: 174 };
+  setVerticalBarsLayout(layout, root);
+  setVerticalBarsLayout(layout, root);
+  setVerticalBarsLayout({ ...layout }, root);
+  expect(refreshes).toBe(1);
+  setVerticalBarsLayout({ ...layout, toolbarTop: 124 }, root);
+  expect(refreshes).toBe(2);
+  setVerticalBarsLayout({ edge: null }, root);
+  expect(refreshes).toBe(3);
+});
+
 test('theme posture helper preserves unrelated layout state', () => {
   const root = document.createElement('div');
   root.className = 'app-custom';
