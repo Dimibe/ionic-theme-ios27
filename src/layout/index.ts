@@ -8,6 +8,7 @@ export interface VerticalBarsLayout {
 
 const toolbarTopProperty = '--ios-theme-vertical-bars-toolbar-top';
 const toolbarTops = new WeakMap<HTMLElement, { previous: string; priority: string; applied: string }>();
+const appliedLayouts = new WeakMap<HTMLElement, string>();
 
 /** Applies only Web layout. Does not enable Native UI or report native availability. */
 export const setVerticalBarsLayout = (
@@ -19,9 +20,14 @@ export const setVerticalBarsLayout = (
   if (!app) return;
   const { edge = null, inset = 0 } = layout;
   const direction = rtl ?? app.closest('[dir]')?.getAttribute('dir') === 'rtl';
+  const nativeInset = edge && Number.isFinite(inset) && inset > 0 ? inset : 0;
+  // Identical resolved input must not re-run: refresh dispatches a native re-scan.
+  const applied = `${edge ?? ''}|${nativeInset}|${layout.toolbarTop ?? ''}|${direction}`;
+  if (appliedLayouts.get(app) === applied) return;
+  appliedLayouts.set(app, applied);
   app.classList.toggle('ios-theme-vertical-bars', edge !== null);
   app.classList.toggle('ios-theme-vertical-bars-left', edge !== null && (edge === 'leading') !== direction);
-  if (edge && Number.isFinite(inset) && inset > 0) app.style.setProperty('--ios-theme-vertical-bars-native-inset', `${inset}px`);
+  if (nativeInset > 0) app.style.setProperty('--ios-theme-vertical-bars-native-inset', `${nativeInset}px`);
   else app.style.removeProperty('--ios-theme-vertical-bars-native-inset');
   // Restore only while the value still matches our write; identical application writes are indistinguishable.
   const saved = toolbarTops.get(app);
