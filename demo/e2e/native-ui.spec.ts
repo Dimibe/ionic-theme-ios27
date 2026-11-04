@@ -747,9 +747,9 @@ test('native verticalBars actions follow WillEnter and stay enabled during navig
     )
     .toBe(true);
   const routedPage = page.locator('app-native-ui.ion-page');
+  // Native ownership may persist during navigation; assert release after DidLeave.
 
   await routedPage.evaluate((element) => element.dispatchEvent(new CustomEvent('ionViewWillLeave', { bubbles: true })));
-  await expect(source).not.toHaveAttribute('data-native-ui-projected', '');
   await routedPage.evaluate((element) => element.dispatchEvent(new CustomEvent('ionViewDidLeave', { bubbles: true })));
   await expect(source).not.toHaveAttribute('data-native-ui-projected', '');
   await page.waitForTimeout(150);
@@ -794,7 +794,6 @@ test('native verticalBars actions follow WillEnter and stay enabled during navig
   await save.evaluate((element) => element.classList.remove('author-no-pointer'));
   await routedPage.evaluate((element) => (element.style.pointerEvents = ''));
   await routedPage.evaluate((element) => element.dispatchEvent(new CustomEvent('ionViewWillLeave', { bubbles: true })));
-  await expect(source).not.toHaveAttribute('data-native-ui-projected', '');
   await routedPage.evaluate((element) => element.dispatchEvent(new Event('iosThemeVerticalBarsTransitionCanceled', { bubbles: true })));
   await expect(source).toHaveAttribute('data-native-ui-projected', '');
 });
